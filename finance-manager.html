@@ -1182,10 +1182,22 @@ IMPORTANTE: Responda APENAS o array JSON, sem texto antes ou depois.`;
   }
 }
 
+// ── Dados temporários do scan em edição ──────────────────────────────────────
+let scanPendingData = null;
+let scanPendingItems = [];
+
+function buildCatOptions(selectedId) {
+  return state.categories.map(c =>
+    `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.icon} ${c.name}</option>`
+  ).join('');
+}
+
 function showScanResult(data) {
+  scanPendingData = Object.assign({}, data);
   const cat = getCat(data.category_id) || state.categories[0];
   const resultCard = document.getElementById('scan-result-card');
   const today = new Date().toISOString().split('T')[0];
+
   document.getElementById('scan-result-content').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div style="background:var(--surface2);border-radius:8px;padding:14px">
@@ -1194,21 +1206,25 @@ function showScanResult(data) {
       </div>
       <div style="background:var(--surface2);border-radius:8px;padding:14px">
         <div class="kpi-label" style="margin-bottom:4px">Valor</div>
-        <div style="font-size:15px;font-weight:500;color:var(--red);font-family:'DM Mono',monospace">R$ ${data.amount?.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+        <div style="font-size:15px;font-weight:500;color:var(--red);font-family:'DM Mono',monospace">R$ ${(parseFloat(data.amount)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
       </div>
       <div style="background:var(--surface2);border-radius:8px;padding:14px">
         <div class="kpi-label" style="margin-bottom:4px">Data</div>
         <div style="font-size:15px;font-weight:500">${data.date ? new Date(data.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div>
       </div>
       <div style="background:var(--surface2);border-radius:8px;padding:14px">
-        <div class="kpi-label" style="margin-bottom:4px">Categoria</div>
-        <span class="cat-pill" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>
+        <div class="kpi-label" style="margin-bottom:4px">Categoria <span style="color:var(--accent);font-size:10px;margin-left:4px">✎ editável</span></div>
+        <select class="form-input" id="scan-cat-single"
+          style="padding:5px 8px;font-size:12.5px;margin-top:4px;border-color:${cat.color}55;background:${cat.color}11"
+          onchange="updateSingleScanCat(this.value)">
+          ${buildCatOptions(data.category_id || cat.id)}
+        </select>
       </div>
     </div>
     <div style="background:rgba(200,240,77,0.06);border:1px solid rgba(200,240,77,0.2);border-radius:8px;padding:12px;font-size:12px;color:var(--text2);margin-bottom:16px">
-      🤖 Confiança: <strong style="color:var(--accent)">${data.confidence?.toUpperCase()}</strong> ${data.notes ? '· ' + data.notes : ''}
+      🤖 Confiança: <strong style="color:var(--accent)">${(data.confidence||'').toUpperCase()}</strong>${data.notes ? ' · ' + data.notes : ''}
     </div>
-    <button class="btn btn-accent" style="width:100%;justify-content:center;padding:11px" onclick="confirmScan(${JSON.stringify(data).replace(/"/g,'&quot;')})">✅ Confirmar e Registrar</button>
+    <button class="btn btn-accent" style="width:100%;justify-content:center;padding:11px" onclick="confirmScan()">✅ Confirmar e Registrar</button>
   `;
   resultCard.style.display = 'block';
   renderManualForm({
@@ -1222,42 +1238,67 @@ function showScanResult(data) {
   });
 }
 
-function showMultiScanResult(items) {
-  const resultCard = document.getElementById('scan-result-card');
-  const today = new Date().toISOString().split('T')[0];
-  const total = items.reduce((a, t) => a + (parseFloat(t.amount) || 0), 0);
-
-  document.getElementById('scan-result-content').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-size:14px;font-weight:600">📋 ${items.length} transações identificadas</div>
-      <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red)">Total: R$ ${total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
-      ${items.map((tx, i) => {
-        const cat = getCat(tx.category_id) || state.categories[0];
-        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <div style="font-size:13.5px;font-weight:500">${tx.merchant || '—'}</div>
-            <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red)">R$ ${(parseFloat(tx.amount)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-size:11.5px;color:var(--text3)">${tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
-            <span class="cat-pill" style="background:${cat.color}22;color:${cat.color};font-size:11px">${cat.icon} ${cat.name}</span>
-            <span style="font-size:11px;color:var(--text3)">Conf: ${tx.confidence||'—'}</span>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-accent" style="flex:1;justify-content:center;padding:11px" onclick="confirmAllScans(${JSON.stringify(items).replace(/"/g,'&quot;')})">✅ Registrar todas (${items.length})</button>
-    </div>
-  `;
-  resultCard.style.display = 'block';
+function updateSingleScanCat(catId) {
+  if (scanPendingData) scanPendingData.category_id = catId;
 }
 
-function confirmAllScans(items) {
+function showMultiScanResult(items) {
+  // Cópia editável de cada item
+  scanPendingItems = items.map(t => Object.assign({}, t));
+  const resultCard = document.getElementById('scan-result-card');
   const today = new Date().toISOString().split('T')[0];
-  items.forEach(data => {
+
+  function renderMulti() {
+    const total = scanPendingItems.reduce((a, t) => a + (parseFloat(t.amount) || 0), 0);
+    document.getElementById('scan-result-content').innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600">📋 ${scanPendingItems.length} transações identificadas</div>
+        <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red)">Total: R$ ${total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+        ${scanPendingItems.map((tx, i) => {
+          const cat = getCat(tx.category_id) || state.categories[0];
+          return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:13.5px;font-weight:500;flex:1;margin-right:8px">${tx.merchant || '—'}</div>
+              <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red);flex-shrink:0">R$ ${(parseFloat(tx.amount)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11.5px;color:var(--text3);flex-shrink:0">${tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
+              <div style="flex:1;min-width:140px">
+                <select class="form-input" 
+                  style="padding:4px 8px;font-size:12px;border-color:${cat.color}55;background:${cat.color}11"
+                  onchange="updateMultiScanCat(${i}, this.value)">
+                  ${buildCatOptions(tx.category_id || cat.id)}
+                </select>
+              </div>
+              <span style="font-size:11px;color:var(--text3);flex-shrink:0">Conf: ${tx.confidence||'—'}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-accent" style="flex:1;justify-content:center;padding:11px" onclick="confirmAllScans()">✅ Registrar todas (${scanPendingItems.length})</button>
+      </div>
+    `;
+  }
+
+  renderMulti();
+  resultCard.style.display = 'block';
+
+  // Expõe função de update globalmente para o onchange inline
+  window._renderMulti = renderMulti;
+}
+
+function updateMultiScanCat(index, catId) {
+  if (scanPendingItems[index]) {
+    scanPendingItems[index].category_id = catId;
+  }
+}
+
+function confirmAllScans() {
+  const today = new Date().toISOString().split('T')[0];
+  scanPendingItems.forEach(data => {
     state.transactions.push({
       id: 'tx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
       merchant: data.merchant || 'Sem nome',
@@ -1269,19 +1310,28 @@ function confirmAllScans(items) {
       notes: data.notes || '',
       createdAt: new Date().toISOString()
     });
+    // Atualiza mapeamento com categoria final escolhida
+    if (data.merchant && data.category_id) {
+      state.mappings[data.merchant.toLowerCase()] = data.category_id;
+    }
   });
   saveState();
   document.getElementById('scan-result-card').style.display = 'none';
-  showNotif(`✅ ${items.length} transações registradas!`, 'success');
+  showNotif(`✅ ${scanPendingItems.length} transações registradas!`, 'success');
   navigate('transactions');
 }
 
-function confirmScan(data) {
+function confirmScan() {
+  const data = scanPendingData;
+  if (!data) { showNotif('Nenhum dado para confirmar', 'error'); return; }
   const today = new Date().toISOString().split('T')[0];
+  // Lê categoria final do select (caso usuário tenha alterado)
+  const selEl = document.getElementById('scan-cat-single');
+  if (selEl) data.category_id = selEl.value;
   const tx = {
     id: 'tx_'+Date.now(),
     merchant: data.merchant,
-    amount: data.amount,
+    amount: parseFloat(data.amount) || 0,
     date: data.date || today,
     cashDate: data.date || today,
     categoryId: data.category_id,
@@ -1289,8 +1339,13 @@ function confirmScan(data) {
     notes: data.notes || '',
     createdAt: new Date().toISOString()
   };
+  // Atualiza mapeamento com categoria final
+  if (data.merchant && data.category_id) {
+    state.mappings[data.merchant.toLowerCase()] = data.category_id;
+  }
   state.transactions.push(tx);
   saveState();
+  scanPendingData = null;
   showNotif('✅ Transação registrada com sucesso!', 'success');
   document.getElementById('scan-result-card').style.display = 'none';
 }
