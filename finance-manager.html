@@ -1106,14 +1106,22 @@ async function processFile(file) {
     const mappingHints = Object.entries(state.mappings).slice(0,20)
       .map(([m,c]) => `"${m}" → ${getCat(c)?.name||c}`).join('; ');
 
-    const prompt = `Você é um extrator de dados financeiros. Analise esta imagem de comprovante, nota fiscal, recibo ou extrato bancário.
+    const prompt = `Você é um extrator de dados financeiros. Analise esta imagem — pode ser um comprovante único, extrato bancário, print de notificações ou qualquer registro com uma ou mais transações financeiras.
 
-Extraia EXATAMENTE estas informações em JSON:
-{"merchant":"nome do estabelecimento","amount":número,"date":"YYYY-MM-DD","category_suggestion":"categoria sugerida","category_id":"id da categoria","type":"expense ou income","notes":"obs curta","confidence":"high/medium/low"}
+REGRAS:
+- Se houver UMA transação: retorne um array com 1 objeto
+- Se houver MÚLTIPLAS transações: retorne um array com todos os objetos
+- Extraia cada transação separadamente
+
+Formato obrigatório — retorne APENAS um array JSON puro, sem markdown:
+[
+  {"merchant":"nome do estabelecimento","amount":número,"date":"YYYY-MM-DD","category_id":"id da categoria","type":"expense ou income","notes":"obs curta","confidence":"high/medium/low"},
+  ...
+]
 
 Categorias disponíveis: ${catList}
 Mapeamentos conhecidos: ${mappingHints || 'nenhum'}
-Responda APENAS JSON puro, sem markdown.`;
+IMPORTANTE: Responda APENAS o array JSON, sem texto antes ou depois.`;
 
     // ✅ Chama o PROXY — nenhuma chave no frontend
     const resp = await fetch(PROXY_URL, {
@@ -1133,12 +1141,25 @@ Responda APENAS JSON puro, sem markdown.`;
     }
 
     const { result } = await resp.json();
-    const parsed = JSON.parse(result);
-    if (parsed.merchant && parsed.category_id) {
-      state.mappings[parsed.merchant.toLowerCase()] = parsed.category_id;
-    }
+    const clean = result.replace(/```json|```/g, '').trim();
+
+    // Suporta tanto array quanto objeto único
+    let parsed = JSON.parse(clean);
+    if (!Array.isArray(parsed)) parsed = [parsed];
+
+    // Auto-mapeamento
+    parsed.forEach(tx => {
+      if (tx.merchant && tx.category_id) {
+        state.mappings[tx.merchant.toLowerCase()] = tx.category_id;
+      }
+    });
+
     overlay.classList.remove('show');
-    showScanResult(parsed);
+    if (parsed.length === 1) {
+      showScanResult(parsed[0]);
+    } else {
+      showMultiScanResult(parsed);
+    }
 
   } catch(err) {
     overlay.classList.remove('show');
@@ -1170,7 +1191,7 @@ function showScanResult(data) {
         <div style="font-size:15px;font-weight:500">${data.date ? new Date(data.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div>
       </div>
       <div style="background:var(--surface2);border-radius:8px;padding:14px">
-        <div class="kpi-label" style="margin-bottom:4px">Categoria Sugerida</div>
+        <div class="kpi-label" style="margin-bottom:4px">Categoria</div>
         <span class="cat-pill" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>
       </div>
     </div>
@@ -1191,6 +1212,60 @@ function showScanResult(data) {
   });
 }
 
+function showMultiScanResult(items) {
+  const resultCard = document.getElementById('scan-result-card');
+  const today = new Date().toISOString().split('T')[0];
+  const total = items.reduce((a, t) => a + (parseFloat(t.amount) || 0), 0);
+
+  document.getElementById('scan-result-content').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600">📋 ${items.length} transações identificadas</div>
+      <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red)">Total: R$ ${total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+      ${items.map((tx, i) => {
+        const cat = getCat(tx.category_id) || state.categories[0];
+        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:13.5px;font-weight:500">${tx.merchant || '—'}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--red)">R$ ${(parseFloat(tx.amount)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11.5px;color:var(--text3)">${tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</span>
+            <span class="cat-pill" style="background:${cat.color}22;color:${cat.color};font-size:11px">${cat.icon} ${cat.name}</span>
+            <span style="font-size:11px;color:var(--text3)">Conf: ${tx.confidence||'—'}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-accent" style="flex:1;justify-content:center;padding:11px" onclick="confirmAllScans(${JSON.stringify(items).replace(/"/g,'&quot;')})">✅ Registrar todas (${items.length})</button>
+    </div>
+  `;
+  resultCard.style.display = 'block';
+}
+
+function confirmAllScans(items) {
+  const today = new Date().toISOString().split('T')[0];
+  items.forEach(data => {
+    state.transactions.push({
+      id: 'tx_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+      merchant: data.merchant || 'Sem nome',
+      amount: parseFloat(data.amount) || 0,
+      date: data.date || today,
+      cashDate: data.date || today,
+      categoryId: data.category_id || state.categories[0]?.id,
+      type: data.type || 'expense',
+      notes: data.notes || '',
+      createdAt: new Date().toISOString()
+    });
+  });
+  saveState();
+  document.getElementById('scan-result-card').style.display = 'none';
+  showNotif(`✅ ${items.length} transações registradas!`, 'success');
+  navigate('transactions');
+}
+
 function confirmScan(data) {
   const today = new Date().toISOString().split('T')[0];
   const tx = {
@@ -1206,7 +1281,7 @@ function confirmScan(data) {
   };
   state.transactions.push(tx);
   saveState();
-  showNotif('✅ Despesa registrada com sucesso!', 'success');
+  showNotif('✅ Transação registrada com sucesso!', 'success');
   document.getElementById('scan-result-card').style.display = 'none';
 }
 
