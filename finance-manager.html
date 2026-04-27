@@ -902,6 +902,7 @@ const pageTitles = {
   categories: 'Categorias',
 };
 function navigate(page) {
+  if (!currentUser) { showLoginScreen(); return; }
   closeMobileSidebar();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -912,6 +913,7 @@ function navigate(page) {
   renderPage(page);
 }
 function renderPage(page) {
+  if (!currentUser) { showLoginScreen(); return; }
   if (page === 'dashboard') renderDashboard();
   if (page === 'scan') renderScan();
   if (page === 'transactions') renderTransactions();
@@ -2042,13 +2044,40 @@ function closeMobileSidebar() {
   }
 })();
 
+// Mostra login por padrão — esconde só após autenticação confirmada
+document.getElementById('login-screen').classList.add('show');
+
 // Verifica autenticação antes de mostrar o app
-checkAuth().then(() => {
-  renderDashboard();
-  renderScan();
-  updateApiKeyStatus();
-  checkOnboarding();
-});
+(async function() {
+  try {
+    var token = getToken();
+    if (!token) {
+      // Sem token — mantém login screen visível
+      showLoginScreen();
+      return;
+    }
+    // Tem token — verifica se ainda é válido
+    var r = await authFetch('/auth/me');
+    if (!r.ok) {
+      clearToken();
+      showLoginScreen();
+      return;
+    }
+    var data = await r.json();
+    currentUser = data;
+    hideLoginScreen();
+    updateUserBadge();
+    // Só renderiza o app após autenticação confirmada
+    renderDashboard();
+    renderScan();
+    updateApiKeyStatus();
+    checkOnboarding();
+  } catch(e) {
+    console.error('Auth error:', e);
+    clearToken();
+    showLoginScreen();
+  }
+})();
 </script>
 
 <!-- LOGIN SCREEN -->
