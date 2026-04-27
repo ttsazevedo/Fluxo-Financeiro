@@ -571,6 +571,7 @@
   <div class="nav-section">Configurar</div>
   <div class="nav-item" onclick="navigate('categories')"><span class="nav-icon">◫</span><span class="nav-item-label">Categorias</span></div>
   <div class="nav-item" id="admin-nav-item" onclick="openUserPanel()" style="display:none"><span class="nav-icon">👥</span><span class="nav-item-label">Usuários</span></div>
+  <div class="nav-item" onclick="navigate('import')"><span class="nav-icon">📥</span><span class="nav-item-label">Importar Extrato</span></div>
 
   <div class="sidebar-footer">
     <div class="balance-chip">
@@ -665,6 +666,57 @@
           <div class="section-title">✍️ Lançamento Manual</div>
           <div id="manual-form"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- IMPORT PAGE -->
+    <div class="page" id="page-import">
+      <div class="card" style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="section-title" style="margin:0">📥 Importar Extrato Bancário</div>
+          <div style="font-size:12px;color:var(--text3)">OFX · CSV · XML · PDF</div>
+        </div>
+        <div style="background:rgba(125,211,252,0.06);border:1px solid rgba(125,211,252,0.2);border-radius:10px;padding:14px;margin-bottom:16px;font-size:12.5px;color:var(--text2);line-height:1.7">
+          <strong style="color:var(--accent2)">Como exportar do seu banco:</strong><br>
+          🟠 <strong>Inter PF:</strong> App → Extrato → Exportar → OFX ou CSV<br>
+          🔵 <strong>C6 Bank:</strong> App → Extrato → Exportar PDF (usará IA)<br>
+          🟢 <strong>Santander:</strong> Internet Banking → Extrato → Exportar OFX
+        </div>
+        <div class="upload-zone" id="import-upload-zone" onclick="document.getElementById('import-file-input').click()" style="margin-bottom:0">
+          <div class="processing-overlay" id="import-processing-overlay">
+            <div class="spinner"></div>
+            <div id="import-processing-msg" style="font-size:13px;color:var(--text2)">Processando arquivo…</div>
+          </div>
+          <div class="upload-icon">📂</div>
+          <div class="upload-title">Arraste ou clique para enviar o extrato</div>
+          <div class="upload-sub">OFX, CSV, XML, PDF — qualquer banco brasileiro</div>
+        </div>
+        <input type="file" id="import-file-input" accept=".ofx,.csv,.xml,.pdf,.txt,.xls,.xlsx" onchange="handleImportUpload(event)" style="display:none">
+      </div>
+
+      <!-- Preview table -->
+      <div class="card" id="import-preview-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="section-title" style="margin:0">📋 Pré-visualização</div>
+            <div id="import-preview-summary" style="font-size:12.5px;color:var(--text3);margin-top:4px"></div>
+          </div>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-ghost" onclick="selectAllImport(false)" style="font-size:12px;padding:6px 12px">Desmarcar todas</button>
+            <button class="btn btn-ghost" onclick="selectAllImport(true)" style="font-size:12px;padding:6px 12px">Marcar todas</button>
+            <button class="btn btn-accent" id="import-confirm-btn" onclick="confirmImport()" style="font-size:13px;padding:8px 18px">✅ Importar selecionadas</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tx-table" id="import-preview-table">
+            <thead><tr>
+              <th style="width:36px"><input type="checkbox" id="import-check-all" onchange="selectAllImport(this.checked)" style="cursor:pointer"></th>
+              <th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th>
+            </tr></thead>
+            <tbody id="import-preview-tbody"></tbody>
+          </table>
+        </div>
+        <div id="import-duplicate-warning" style="display:none;margin-top:12px;padding:12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;font-size:12.5px;color:#fbbf24"></div>
       </div>
     </div>
 
@@ -964,6 +1016,7 @@ let currentPage = 'dashboard';
 const pageTitles = {
   dashboard: 'Dashboard',
   scan: 'Lançar / Escanear',
+  import: 'Importar Extrato',
   transactions: 'Transações',
   reports: 'Relatórios',
   alerts: 'Alertas & Metas',
@@ -988,6 +1041,7 @@ function renderPage(page) {
   if (page === 'reports') renderReports();
   if (page === 'alerts') renderAlerts();
   if (page === 'categories') renderCategories();
+  if (page === 'import') renderImport();
 }
 function updateAll() { renderPage(currentPage); }
 
@@ -2297,6 +2351,467 @@ async function revokeInvite(token) {
   if (!r.ok) { showNotif('Erro ao revogar', 'error'); return; }
   showNotif('Convite revogado', 'success');
   await renderInvitePanel();
+}
+
+
+// ─── IMPORT EXTRATO ───────────────────────────────────────────────────────────
+var importPendingItems = [];
+
+function renderImport() {
+  document.getElementById('import-preview-card').style.display = 'none';
+  document.getElementById('import-duplicate-warning').style.display = 'none';
+  importPendingItems = [];
+  // Init drag & drop
+  var zone = document.getElementById('import-upload-zone');
+  if (zone && !zone._ddInit) {
+    zone._ddInit = true;
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault(); zone.classList.remove('dragover');
+      var f = e.dataTransfer.files[0];
+      if (f) processImportFile(f);
+    });
+  }
+}
+
+
+
+function handleImportUpload(e) {
+  var f = e.target.files[0];
+  if (f) { processImportFile(f); e.target.value = ''; }
+}
+
+async function processImportFile(file) {
+  var overlay = document.getElementById('import-processing-overlay');
+  var msgEl   = document.getElementById('import-processing-msg');
+  overlay.classList.add('show');
+  document.getElementById('import-preview-card').style.display = 'none';
+
+  try {
+    var ext = file.name.split('.').pop().toLowerCase();
+    var transactions = [];
+
+    msgEl.textContent = 'Lendo arquivo…';
+
+    if (ext === 'ofx' || ext === 'qfx') {
+      var text = await readFileText(file);
+      transactions = parseOFX(text);
+    } else if (ext === 'csv' || ext === 'txt') {
+      var text = await readFileText(file);
+      transactions = parseCSV(text);
+    } else if (ext === 'xml') {
+      var text = await readFileText(file);
+      transactions = parseXML(text);
+    } else if (ext === 'pdf' || ext === 'xls' || ext === 'xlsx') {
+      // IA fallback para formatos não estruturados
+      msgEl.textContent = 'Enviando para IA…';
+      transactions = await parseWithAI(file);
+    } else {
+      // Tenta como texto primeiro, depois IA
+      try {
+        var text = await readFileText(file);
+        transactions = parseCSV(text);
+        if (transactions.length === 0) throw new Error('Vazio');
+      } catch(e2) {
+        msgEl.textContent = 'Enviando para IA…';
+        transactions = await parseWithAI(file);
+      }
+    }
+
+    // Se parser retornou vazio, tenta IA como fallback
+    if (transactions.length === 0 && ext !== 'pdf') {
+      msgEl.textContent = 'Parser não reconheceu — tentando IA…';
+      transactions = await parseWithAI(file);
+    }
+
+    if (transactions.length === 0) {
+      showNotif('Nenhuma transação encontrada no arquivo', 'error');
+      overlay.classList.remove('show');
+      return;
+    }
+
+    // Categoriza automaticamente
+    transactions = transactions.map(function(tx) {
+      if (!tx.category_id) {
+        var key = (tx.merchant || '').toLowerCase();
+        tx.category_id = state.mappings[key] || autoCategory(tx.merchant, tx.type);
+      }
+      return tx;
+    });
+
+    // Detecta duplicatas
+    var duplicates = detectDuplicates(transactions);
+    importPendingItems = transactions.map(function(tx, i) {
+      return Object.assign({}, tx, { _selected: !duplicates.has(i), _isDuplicate: duplicates.has(i) });
+    });
+
+    overlay.classList.remove('show');
+    showImportPreview(importPendingItems, file.name);
+
+  } catch(err) {
+    overlay.classList.remove('show');
+    showNotif('Erro ao processar: ' + err.message, 'error');
+    console.error('[import]', err);
+  }
+}
+
+// ── FILE READER ───────────────────────────────────────────────────────────────
+function readFileText(file) {
+  return new Promise(function(resolve, reject) {
+    var r = new FileReader();
+    r.onload = function(e) { resolve(e.target.result); };
+    r.onerror = function() { reject(new Error('Erro ao ler arquivo')); };
+    r.readAsText(file, 'latin1');
+  });
+}
+
+function fileToBase64Import(file) {
+  return new Promise(function(resolve, reject) {
+    var r = new FileReader();
+    r.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+    r.onerror = function() { reject(new Error('Erro ao ler arquivo')); };
+    r.readAsDataURL(file);
+  });
+}
+
+// ── OFX PARSER ────────────────────────────────────────────────────────────────
+function parseOFX(text) {
+  var txs = [];
+  // Suporta OFX antigo (SGML) e novo (XML)
+  var stmtBlocks = text.match(/<STMTTRN[\s\S]*?<\/STMTTRN>|STMTTRN[\s\S]*?END:STMTTRN/gi) || [];
+
+  stmtBlocks.forEach(function(block) {
+    function tag(name) {
+      var m = block.match(new RegExp('<' + name + '>([^<\n\r]+)', 'i'));
+      if (m) return m[1].trim();
+      m = block.match(new RegExp(name + ':([^\n\r]+)', 'i'));
+      return m ? m[1].trim() : '';
+    }
+
+    var amt   = parseFloat(tag('TRNAMT') || tag('TRNAMT') || '0');
+    var dtStr = tag('DTPOSTED') || tag('DTUSER') || '';
+    var memo  = tag('MEMO') || tag('NAME') || tag('TRNTYPE') || '';
+    var type  = tag('TRNTYPE') || '';
+
+    if (!amt) return;
+
+    // Converte data OFX: YYYYMMDD[HHMMSS]
+    var date = '';
+    if (dtStr.length >= 8) {
+      date = dtStr.slice(0,4) + '-' + dtStr.slice(4,6) + '-' + dtStr.slice(6,8);
+    }
+
+    txs.push({
+      merchant  : memo,
+      amount    : Math.abs(amt),
+      date      : date,
+      type      : (amt < 0 || type === 'DEBIT' || type === 'CHECK' || type === 'ATM') ? 'expense' : 'income',
+      notes     : '',
+      category_id: '',
+    });
+  });
+
+  return txs;
+}
+
+// ── CSV PARSER ────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (lines.length < 2) return [];
+
+  // Detecta separador
+  var sep = ',';
+  var firstLine = lines[0];
+  if ((firstLine.match(/;/g)||[]).length > (firstLine.match(/,/g)||[]).length) sep = ';';
+
+  // Detecta cabeçalho e mapeamento de colunas
+  var headers = lines[0].split(sep).map(function(h) { return h.replace(/["
+]/g,'').toLowerCase().trim(); });
+
+  function findCol(patterns) {
+    for (var i = 0; i < headers.length; i++) {
+      for (var j = 0; j < patterns.length; j++) {
+        if (headers[i].includes(patterns[j])) return i;
+      }
+    }
+    return -1;
+  }
+
+  var colDate   = findCol(['data','date','dt','dia']);
+  var colDesc   = findCol(['descri','memo','histor','estabelec','name','nome','lançamento','lancamento']);
+  var colAmt    = findCol(['valor','amount','vl ','vlr','debit','credit','débito','crédito','value']);
+  var colType   = findCol(['tipo','type','natureza','dc','deb/cred']);
+  var colAmt2   = findCol(['crédito','credito','credit']); // separado para bancos que separam colunas
+
+  if (colDate === -1 && colDesc === -1) return []; // não parece CSV financeiro
+
+  var txs = [];
+
+  for (var i = 1; i < lines.length; i++) {
+    var cols = lines[i].split(sep).map(function(c) { return c.replace(/["
+]/g,'').trim(); });
+    if (cols.length < 2) continue;
+
+    var dateRaw = colDate >= 0 ? cols[colDate] : '';
+    var desc    = colDesc >= 0 ? cols[colDesc] : cols[1] || '';
+    var amtRaw  = colAmt  >= 0 ? cols[colAmt]  : '';
+    var typeRaw = colType >= 0 ? cols[colType]  : '';
+
+    // Normaliza data: DD/MM/YYYY → YYYY-MM-DD
+    var date = '';
+    var dm = dateRaw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+    if (dm) {
+      var y = dm[3].length === 2 ? '20' + dm[3] : dm[3];
+      var mo = dm[2].padStart(2,'0');
+      var d  = dm[1].padStart(2,'0');
+      // Tenta detectar se é DD/MM ou MM/DD
+      if (parseInt(dm[1]) > 12) date = y + '-' + mo + '-' + d;
+      else date = y + '-' + mo + '-' + d;
+    } else {
+      date = dateRaw;
+    }
+
+    // Normaliza valor
+    var amtClean = amtRaw.replace(/[R$\s]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+    var amt = parseFloat(amtClean) || 0;
+    if (!amt && colAmt2 >= 0) {
+      var amt2Clean = cols[colAmt2].replace(/[R$\s]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+      amt = parseFloat(amt2Clean) || 0;
+    }
+    if (!amt) continue;
+
+    // Detecta tipo
+    var type = 'expense';
+    if (typeRaw) {
+      var tl = typeRaw.toLowerCase();
+      if (tl.includes('c') || tl.includes('cred') || tl.includes('entrada') || tl.includes('receb')) type = 'income';
+      if (tl.includes('d') || tl.includes('deb')  || tl.includes('saída') || tl.includes('pag')) type = 'expense';
+    } else {
+      // Sem coluna de tipo: valores negativos = despesa
+      if (amtRaw.includes('-') || amtClean.startsWith('-')) type = 'expense';
+      else type = 'income';
+    }
+
+    if (!desc) continue;
+    txs.push({ merchant: desc, amount: Math.abs(amt), date, type, notes: '', category_id: '' });
+  }
+
+  return txs;
+}
+
+// ── XML PARSER ────────────────────────────────────────────────────────────────
+function parseXML(text) {
+  try {
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(text, 'text/xml');
+
+    // Tenta OFX-XML primeiro
+    var stmts = doc.querySelectorAll('STMTTRN');
+    if (stmts.length > 0) return parseOFX(text);
+
+    // Tenta formato genérico
+    var txs = [];
+    var items = doc.querySelectorAll('transaction,lancamento,movimentacao,entry,item');
+    items.forEach(function(el) {
+      function val(tags) {
+        for (var t of tags) {
+          var node = el.querySelector(t);
+          if (node) return node.textContent.trim();
+        }
+        return '';
+      }
+      var amt = parseFloat(val(['valor','amount','value','vlr']).replace(',','.')) || 0;
+      if (!amt) return;
+      var date = val(['data','date','dt','dataLancamento']);
+      var dm = date.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+      if (dm) date = (dm[3].length===2?'20'+dm[3]:dm[3])+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');
+      txs.push({
+        merchant  : val(['descricao','description','memo','historico','nome']),
+        amount    : Math.abs(amt),
+        date, type: amt < 0 ? 'expense' : 'income',
+        notes: '', category_id: ''
+      });
+    });
+    return txs;
+  } catch(e) { return []; }
+}
+
+// ── IA FALLBACK ───────────────────────────────────────────────────────────────
+async function parseWithAI(file) {
+  if (!isConfigured()) throw new Error('IA não configurada');
+
+  var base64 = await fileToBase64Import(file);
+  var mimeType = file.type || 'application/pdf';
+  if (!mimeType || mimeType === 'application/octet-stream') mimeType = 'application/pdf';
+
+  var catList = state.categories.map(function(c) { return c.name + ' (id:' + c.id + ')'; }).join(', ');
+  var prompt = 'Analise este extrato bancário ou fatura de cartão. Extraia TODAS as transações financeiras.
+
+Retorne APENAS um array JSON:
+[{"merchant":"nome","amount":numero,"date":"YYYY-MM-DD","type":"expense ou income","notes":"","category_id":"id"}]
+
+Categorias: ' + catList + '
+Responda APENAS o array JSON puro.';
+
+  var resp = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ provider: ACTIVE_PROVIDER, prompt, base64, mimeType })
+  });
+
+  if (!resp.ok) {
+    var err = await resp.json().catch(function(){return{};});
+    throw new Error(err.error || 'Erro ' + resp.status);
+  }
+
+  var data = await resp.json();
+  var clean = data.result.replace(/```json|```/g,'').trim();
+  var parsed = JSON.parse(clean);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+// ── AUTO CATEGORY ──────────────────────────────────────────────────────────────
+function autoCategory(merchant, type) {
+  if (type === 'income') {
+    var incCat = state.categories.find(function(c) {
+      return c.name.toLowerCase().includes('salário') || c.name.toLowerCase().includes('receita') || c.name.toLowerCase().includes('renda');
+    });
+    if (incCat) return incCat.id;
+  }
+  var m = (merchant || '').toLowerCase();
+  var rules = [
+    [['supermercado','carrefour','extra','pão de açúcar','mercado','hortifruti','atacadão'], 'Alimentação'],
+    [['restaurante','lanche','pizza','burger','ifood','rappi','uber eats','delivery'], 'Alimentação'],
+    [['uber','99','táxi','metrô','onibus','combustível','posto','shell','ipiranga'], 'Transporte'],
+    [['farmácia','drogaria','hospital','médico','consulta','saúde','unimed'], 'Saúde'],
+    [['netflix','spotify','amazon','disney','youtube','prime','assinatura'], 'Lazer'],
+    [['shopping','renner','riachuelo','zara','hm','americanas','amazon'], 'Vestuário'],
+    [['luz','energia','água','gás','internet','telefone','claro','vivo','tim'], 'Moradia'],
+    [['escola','faculdade','curso','livro','udemy'], 'Educação'],
+  ];
+  for (var i = 0; i < rules.length; i++) {
+    var keywords = rules[i][0];
+    var catName  = rules[i][1];
+    for (var j = 0; j < keywords.length; j++) {
+      if (m.includes(keywords[j])) {
+        var cat = state.categories.find(function(c) { return c.name === catName; });
+        if (cat) return cat.id;
+      }
+    }
+  }
+  return state.categories[0] ? state.categories[0].id : '';
+}
+
+// ── DUPLICATE DETECTION ────────────────────────────────────────────────────────
+function detectDuplicates(incoming) {
+  var dupes = new Set();
+  incoming.forEach(function(tx, i) {
+    var exists = state.transactions.some(function(ex) {
+      return ex.date === tx.date &&
+             Math.abs(ex.amount - tx.amount) < 0.01 &&
+             (ex.merchant||'').toLowerCase() === (tx.merchant||'').toLowerCase();
+    });
+    if (exists) dupes.add(i);
+  });
+  return dupes;
+}
+
+// ── PREVIEW ────────────────────────────────────────────────────────────────────
+function showImportPreview(items, filename) {
+  var total    = items.filter(function(t) { return t._selected; }).length;
+  var dupeCount= items.filter(function(t) { return t._isDuplicate; }).length;
+  var sumVal   = items.filter(function(t) { return t._selected && t.type==='expense'; })
+                      .reduce(function(a,t) { return a + (parseFloat(t.amount)||0); }, 0);
+
+  document.getElementById('import-preview-summary').textContent =
+    items.length + ' transações encontradas em "' + filename + '" · ' +
+    total + ' selecionadas · R$ ' + sumVal.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' em despesas';
+
+  if (dupeCount > 0) {
+    var warn = document.getElementById('import-duplicate-warning');
+    warn.style.display = 'block';
+    warn.textContent = '⚠️ ' + dupeCount + ' transação(ões) detectada(s) como possível duplicata e desmarcada(s) automaticamente. Verifique antes de importar.';
+  }
+
+  var tbody = document.getElementById('import-preview-tbody');
+  tbody.innerHTML = items.map(function(tx, i) {
+    var cat = getCat(tx.category_id) || state.categories[0] || {name:'—',icon:'',color:'#888'};
+    var rowStyle = tx._isDuplicate ? 'opacity:0.5' : '';
+    return '<tr style="' + rowStyle + '">' +
+      '<td><input type="checkbox" class="import-row-check" data-idx="' + i + '" ' + (tx._selected?'checked':'') + ' onchange="toggleImportRow(' + i + ', this.checked)" style="cursor:pointer"></td>' +
+      '<td style="font-family:'DM Mono',monospace;font-size:12px">' + (tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—') + '</td>' +
+      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (tx.merchant||'') + '">' + (tx.merchant||'—') + '</td>' +
+      '<td><select class="form-input" style="padding:3px 6px;font-size:11.5px;min-width:130px" onchange="changeImportCat(' + i + ', this.value)">' +
+        state.categories.map(function(c) { return '<option value="' + c.id + '"' + (c.id===tx.category_id?' selected':'') + '>' + c.icon + ' ' + c.name + '</option>'; }).join('') +
+      '</select></td>' +
+      '<td>' +
+        '<select class="form-input" style="padding:3px 6px;font-size:11.5px" onchange="changeImportType(' + i + ', this.value)">' +
+          '<option value="expense"' + (tx.type==='expense'?' selected':'') + '>💸 Despesa</option>' +
+          '<option value="income"'  + (tx.type==='income' ?' selected':'') + '>💰 Receita</option>' +
+        '</select>' +
+      '</td>' +
+      '<td style="font-family:'DM Mono',monospace;font-size:12.5px;color:' + (tx.type==='expense'?'var(--red)':'var(--green)') + '">' +
+        'R$ ' + (parseFloat(tx.amount)||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  document.getElementById('import-preview-card').style.display = 'block';
+  document.getElementById('import-check-all').checked = items.every(function(t){return t._selected;});
+}
+
+function toggleImportRow(idx, checked) {
+  importPendingItems[idx]._selected = checked;
+  updateImportSummary();
+}
+function changeImportCat(idx, catId) {
+  importPendingItems[idx].category_id = catId;
+}
+function changeImportType(idx, type) {
+  importPendingItems[idx].type = type;
+}
+function selectAllImport(checked) {
+  importPendingItems.forEach(function(t) { t._selected = checked; });
+  document.querySelectorAll('.import-row-check').forEach(function(cb) { cb.checked = checked; });
+  document.getElementById('import-check-all').checked = checked;
+  updateImportSummary();
+}
+function updateImportSummary() {
+  var total  = importPendingItems.filter(function(t){return t._selected;}).length;
+  var sumVal = importPendingItems.filter(function(t){return t._selected && t.type==='expense';})
+                                 .reduce(function(a,t){return a+(parseFloat(t.amount)||0);},0);
+  var el = document.getElementById('import-preview-summary');
+  if (el) el.textContent = importPendingItems.length + ' transações encontradas · ' + total + ' selecionadas · R$ ' + sumVal.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' em despesas';
+}
+
+function confirmImport() {
+  var today = new Date().toISOString().split('T')[0];
+  var selected = importPendingItems.filter(function(t){return t._selected;});
+  if (selected.length === 0) { showNotif('Nenhuma transação selecionada', 'error'); return; }
+
+  selected.forEach(function(tx) {
+    var id = 'tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    state.transactions.push({
+      id, merchant : tx.merchant || 'Importado',
+      amount    : parseFloat(tx.amount) || 0,
+      date      : tx.date || today,
+      cashDate  : tx.date || today,
+      categoryId: tx.category_id || (state.categories[0]&&state.categories[0].id) || '',
+      type      : tx.type || 'expense',
+      notes     : tx.notes || 'Importado via extrato',
+      createdAt : new Date().toISOString(),
+    });
+    if (tx.merchant && tx.category_id) {
+      state.mappings[(tx.merchant).toLowerCase()] = tx.category_id;
+    }
+  });
+
+  saveState();
+  document.getElementById('import-preview-card').style.display = 'none';
+  importPendingItems = [];
+  showNotif('✅ ' + selected.length + ' transações importadas!', 'success');
+  navigate('transactions');
 }
 
 // ─── SIDEBAR TOGGLE ──────────────────────────────────────────────────────────
