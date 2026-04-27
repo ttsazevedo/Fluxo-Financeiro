@@ -2567,12 +2567,20 @@ function parseCSV(text) {
   var colTitle = findCol(['tulo','title','name','nome']);
   var colDesc  = findCol(['descri','memo','histor','estabelec']);
   var colIn    = findCol(['entrada','entrada(r','credito','credit','receita']);
-  var colOut   = findCol(['saida','saida(r','da(r','debito','debit','pagamento']);
+  var colOut   = findCol(['saida','da(r','debito','debit','pagamento','sai']);
   var colAmt   = findCol(['valor','amount','vlr','value']);
   var colType  = findCol(['tipo','type','natureza','dc','deb']);
   if (colDate === -1) return [];
-  if (numCols === 7 && colIn === -1 && colOut === -1) {
-    colTitle = 2; colDesc = 3; colIn = 4; colOut = 5;
+  // Positional fallback para C6 Bank (7 colunas fixas)
+  if (numCols === 7) {
+    if (colTitle === -1) colTitle = 2;
+    if (colDesc  === -1) colDesc  = 3;
+    if (colIn    === -1) colIn    = 4;
+    if (colOut   === -1) colOut   = 5;
+  }
+  // Se encontrou colIn mas nao colOut, assume que colOut = colIn+1
+  if (colIn >= 0 && colOut === -1 && colIn + 1 < numCols) {
+    colOut = colIn + 1;
   }
   var txs = [];
   for (var i = 1; i < lines.length; i++) {
