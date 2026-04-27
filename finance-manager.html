@@ -1962,7 +1962,25 @@ async function renderUserPanel() {
       </div>
     </div>
     ${roleBadge(currentUser.role)}
-    <button class="btn btn-ghost" onclick="logout()" style="width:100%;justify-content:center;margin-top:14px;padding:9px">
+    <button class="btn btn-ghost" onclick="showChangePwdForm()" style="width:100%;justify-content:center;margin-top:10px;padding:9px;font-size:13px">
+      🔑 Trocar minha senha
+    </button>
+    <div id="change-pwd-form" style="display:none;margin-top:12px;background:var(--surface2);border-radius:10px;padding:14px">
+      <div class="form-group">
+        <label class="form-label">Nova senha</label>
+        <input type="password" class="form-input" id="new-pwd-1" placeholder="Nova senha" style="font-size:13px;padding:8px 10px">
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Confirmar senha</label>
+        <input type="password" class="form-input" id="new-pwd-2" placeholder="Repita a senha" style="font-size:13px;padding:8px 10px">
+      </div>
+      <div id="change-pwd-error" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="hideChangePwdForm()" style="flex:1;justify-content:center;padding:8px;font-size:12px">Cancelar</button>
+        <button class="btn btn-accent" onclick="submitChangePwd()" style="flex:1;justify-content:center;padding:8px;font-size:12px">Salvar</button>
+      </div>
+    </div>
+    <button class="btn btn-ghost" onclick="logout()" style="width:100%;justify-content:center;margin-top:10px;padding:9px;color:var(--red);border-color:rgba(248,113,113,0.3)">
       Sair
     </button>
   `;
@@ -2044,6 +2062,30 @@ function renderUserList(users) {
 
 function showAddUserForm() { document.getElementById('add-user-form').style.display = 'block'; }
 function hideAddUserForm() { document.getElementById('add-user-form').style.display = 'none'; }
+
+function showChangePwdForm() {
+  document.getElementById('change-pwd-form').style.display = 'block';
+  document.getElementById('change-pwd-error').textContent = '';
+  document.getElementById('new-pwd-1').value = '';
+  document.getElementById('new-pwd-2').value = '';
+}
+function hideChangePwdForm() {
+  document.getElementById('change-pwd-form').style.display = 'none';
+}
+async function submitChangePwd() {
+  var p1 = document.getElementById('new-pwd-1').value;
+  var p2 = document.getElementById('new-pwd-2').value;
+  var errEl = document.getElementById('change-pwd-error');
+  if (!p1 || p1.length < 6) { errEl.textContent = 'Mínimo 6 caracteres'; return; }
+  if (p1 !== p2) { errEl.textContent = 'As senhas não coincidem'; return; }
+  var r = await authFetch('/users/' + encodeURIComponent(currentUser.email), {
+    method: 'PUT',
+    body: JSON.stringify({password: p1})
+  });
+  if (!r.ok) { errEl.textContent = 'Erro ao atualizar senha'; return; }
+  hideChangePwdForm();
+  showNotif('✅ Senha atualizada com sucesso!', 'success');
+}
 
 async function createUser() {
   var name  = document.getElementById('nu-name').value.trim();
