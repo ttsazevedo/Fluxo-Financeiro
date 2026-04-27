@@ -467,6 +467,28 @@
   details summary {{ list-style: none; }}
   details summary::-webkit-details-marker {{ display: none; }}
 
+  /* INVESTMENT */
+  .type-opt.invest { color: #a78bfa; }
+  .type-opt.active.invest { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .kpi-card.purple::before { background: #a78bfa; }
+  .invest-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .invest-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .invest-bar-fill { height: 100%; border-radius: 3px; background: #a78bfa; transition: width 0.4s; }
+
   /* LOGIN SCREEN */
   .login-screen {
     display: none;
@@ -572,10 +594,11 @@
   <div class="nav-item" onclick="navigate('categories')"><span class="nav-icon">◫</span><span class="nav-item-label">Categorias</span></div>
   <div class="nav-item" id="admin-nav-item" onclick="openUserPanel()" style="display:none"><span class="nav-icon">👥</span><span class="nav-item-label">Usuários</span></div>
   <div class="nav-item" onclick="navigate('import')"><span class="nav-icon">📥</span><span class="nav-item-label">Importar Extrato</span></div>
+  <div class="nav-item" onclick="navigate('investments')"><span class="nav-icon">📈</span><span class="nav-item-label">Investimentos</span></div>
 
   <div class="sidebar-footer">
     <div class="balance-chip">
-      <div class="balance-label">Saldo Atual</div>
+      <div class="balance-label">Saldo Disponível</div>
       <div class="balance-val" id="sidebar-balance">R$ 0,00</div>
     </div>
   </div>
@@ -717,6 +740,32 @@
           </table>
         </div>
         <div id="import-duplicate-warning" style="display:none;margin-top:12px;padding:12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;font-size:12.5px;color:#fbbf24"></div>
+      </div>
+    </div>
+
+    <!-- INVESTMENTS PAGE -->
+    <div class="page" id="page-investments">
+      <!-- KPIs -->
+      <div class="kpi-grid" id="invest-kpis" style="margin-bottom:20px"></div>
+      <!-- Carteira -->
+      <div class="two-col">
+        <div>
+          <div class="card" style="margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <div class="section-title" style="margin:0">📊 Carteira</div>
+              <button class="btn btn-accent" style="padding:6px 14px;font-size:13px" onclick="openInvestModal()">+ Investimento</button>
+            </div>
+            <div id="invest-portfolio"></div>
+          </div>
+          <div class="card">
+            <div class="section-title">📋 Histórico de Operações</div>
+            <div id="invest-history"></div>
+          </div>
+        </div>
+        <div class="card" id="invest-op-card">
+          <div class="section-title">➕ Nova Operação</div>
+          <div id="invest-op-form"></div>
+        </div>
       </div>
     </div>
 
@@ -1017,6 +1066,7 @@ const pageTitles = {
   dashboard: 'Dashboard',
   scan: 'Lançar / Escanear',
   import: 'Importar Extrato',
+  investments: 'Investimentos',
   transactions: 'Transações',
   reports: 'Relatórios',
   alerts: 'Alertas & Metas',
@@ -1042,6 +1092,7 @@ function renderPage(page) {
   if (page === 'alerts') renderAlerts();
   if (page === 'categories') renderCategories();
   if (page === 'import') renderImport();
+  if (page === 'investments') renderInvestments();
 }
 function updateAll() { renderPage(currentPage); }
 
@@ -1080,8 +1131,9 @@ function getCatSpend(catId, txs) {
 function renderDashboard() {
   const txs = getFilteredTxs();
   const expenses = txs.filter(t => t.type === 'expense').reduce((a,t) => a+t.amount, 0);
+  const invested  = txs.filter(t => t.type === 'invest').reduce((a,t) => a+t.amount, 0);
   const income = txs.filter(t => t.type === 'income').reduce((a,t) => a+t.amount, 0);
-  const balance = income - expenses;
+  const balance = income - expenses - invested;
   const txCount = txs.length;
 
   document.getElementById('sidebar-balance').textContent = fmt(balance);
@@ -1090,8 +1142,8 @@ function renderDashboard() {
   document.getElementById('kpi-grid').innerHTML = `
     <div class="kpi-card green"><div class="kpi-label">Receitas</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='income').length} lançamentos</div><div class="kpi-icon">💰</div></div>
     <div class="kpi-card red"><div class="kpi-label">Despesas</div><div class="kpi-value" style="color:var(--red)">${fmt(expenses)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='expense').length} lançamentos</div><div class="kpi-icon">💸</div></div>
-    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${balance>=0?'Positivo':'Negativo'}</div><div class="kpi-icon">⚖️</div></div>
-    <div class="kpi-card blue"><div class="kpi-label">Transações</div><div class="kpi-value" style="color:var(--accent2)">${txCount}</div><div class="kpi-delta">no período</div><div class="kpi-icon">📊</div></div>
+    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${balance>=0?'Positivo':'Negativo'}</div><div class="kpi-icon">⚖️</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Patrimônio Investido</div><div class="kpi-value" style="color:#a78bfa">${fmt(getPatrimonio())}</div><div class="kpi-delta">${state.investments.length} investimento(s)</div><div class="kpi-icon">📈</div></div>
   `;
 
   // Bar chart
@@ -1122,7 +1174,7 @@ function renderDashboard() {
         <td style="color:var(--text3);font-family:DM Mono,monospace;font-size:11px">${new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</td>
         <td>${tx.merchant}</td>
         <td>${cat?`<span class="cat-pill" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`:''}</td>
-        <td class="${tx.type==='expense'?'amount-neg':'amount-pos'}">${tx.type==='expense'?'- ':'+ '}${fmt(tx.amount)}</td>
+        <td class="${tx.type==='expense'?'amount-neg':tx.type==='invest'?'':' amount-pos'}">${tx.type==='expense'?'- ':'+ '}${fmt(tx.amount)}</td>
       </tr>`;
     }).join('')}
   </table>` : '<div class="empty-state" style="padding:24px"><div class="empty-icon">📭</div><div class="empty-text">Nenhuma transação</div></div>';
@@ -1186,6 +1238,7 @@ function renderManualForm(prefill = {}) {
     <div class="type-toggle">
       <div class="type-opt active expense" id="mtype-expense" onclick="setManualType('expense')">💸 Despesa</div>
       <div class="type-opt income" id="mtype-income" onclick="setManualType('income')">💰 Receita</div>
+      <div class="type-opt invest" id="mtype-invest" onclick="setManualType('invest')">📈 Investimento</div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Data Competência</label><input type="date" class="form-input" id="m-date" value="${prefill.date||today}"></div>
@@ -1206,7 +1259,9 @@ let manualType = 'expense';
 function setManualType(type) {
   manualType = type;
   document.getElementById('mtype-expense').className = `type-opt ${type==='expense'?'active expense':''}`;
-  document.getElementById('mtype-income').className = `type-opt ${type==='income'?'active income':''}`;
+  document.getElementById('mtype-income').className  = `type-opt ${type==='income'?'active income':''}`;
+  var invEl = document.getElementById('mtype-invest');
+  if (invEl) invEl.className = `type-opt ${type==='invest'?'active invest':'invest'}`;
 }
 
 function saveManualTx() {
@@ -1217,6 +1272,11 @@ function saveManualTx() {
   const categoryId = document.getElementById('m-category').value;
   const notes = document.getElementById('m-notes').value;
   if (!merchant || !amount || !date) { showNotif('Preencha os campos obrigatórios', 'error'); return; }
+  // Investimento manual: registra no módulo de investimentos se houver
+  if (manualType === 'invest') {
+    if (!state.investTxs) state.investTxs = [];
+    state.investTxs.push({ id: 'itx_'+Date.now(), investId: 'manual', op: 'aporte', amount, date, notes });
+  }
   const tx = { id: 'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: manualType, notes, createdAt: new Date().toISOString() };
   state.transactions.push(tx);
   // Auto-map
@@ -2788,6 +2848,230 @@ function confirmImport() {
   importPendingItems = [];
   showNotif('✅ ' + selected.length + ' transações importadas!', 'success');
   navigate('transactions');
+}
+
+
+// ─── INVESTMENTS ──────────────────────────────────────────────────────────────
+
+function getPatrimonio() {
+  if (!state.investTxs) return 0;
+  return state.investTxs.reduce(function(acc, tx) {
+    if (tx.op === 'aporte')     return acc + tx.amount;
+    if (tx.op === 'resgate')    return acc - tx.amount;
+    if (tx.op === 'rendimento') return acc + tx.amount;
+    return acc;
+  }, 0);
+}
+
+function getInvestBalance(investId) {
+  if (!state.investTxs) return 0;
+  return state.investTxs.filter(function(t) { return t.investId === investId; })
+    .reduce(function(acc, tx) {
+      if (tx.op === 'aporte')     return acc + tx.amount;
+      if (tx.op === 'resgate')    return acc - tx.amount;
+      if (tx.op === 'rendimento') return acc + tx.amount;
+      return acc;
+    }, 0);
+}
+
+function renderInvestments() {
+  if (!state.investments) state.investments = [];
+  if (!state.investTxs)   state.investTxs   = [];
+
+  // KPIs
+  var patrimonio = getPatrimonio();
+  var totalAporte   = state.investTxs.filter(function(t){return t.op==='aporte';}).reduce(function(a,t){return a+t.amount;},0);
+  var totalResgate  = state.investTxs.filter(function(t){return t.op==='resgate';}).reduce(function(a,t){return a+t.amount;},0);
+  var totalRend     = state.investTxs.filter(function(t){return t.op==='rendimento';}).reduce(function(a,t){return a+t.amount;},0);
+  var rentab = totalAporte > 0 ? ((totalRend / totalAporte) * 100).toFixed(2) : '0.00';
+
+  document.getElementById('invest-kpis').innerHTML =
+    '<div class="kpi-card purple"><div class="kpi-label">Patrimônio Total</div><div class="kpi-value" style="color:#a78bfa">' + fmt(patrimonio) + '</div><div class="kpi-delta">' + state.investments.length + ' ativos</div><div class="kpi-icon">📈</div></div>' +
+    '<div class="kpi-card green"><div class="kpi-label">Total Aportado</div><div class="kpi-value" style="color:var(--green)">' + fmt(totalAporte) + '</div><div class="kpi-delta">bruto investido</div><div class="kpi-icon">💰</div></div>' +
+    '<div class="kpi-card blue"><div class="kpi-label">Rendimentos</div><div class="kpi-value" style="color:var(--accent2)">' + fmt(totalRend) + '</div><div class="kpi-delta">rentab. ' + rentab + '%</div><div class="kpi-icon">📊</div></div>' +
+    '<div class="kpi-card red"><div class="kpi-label">Resgates</div><div class="kpi-value" style="color:var(--red)">' + fmt(totalResgate) + '</div><div class="kpi-delta">retornado ao caixa</div><div class="kpi-icon">🏧</div></div>';
+
+  // Portfolio
+  if (state.investments.length === 0) {
+    document.getElementById('invest-portfolio').innerHTML =
+      '<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">Nenhum investimento cadastrado.<br>Clique em <strong>+ Investimento</strong> para começar.</div>';
+  } else {
+    document.getElementById('invest-portfolio').innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      state.investments.map(function(inv) {
+        var bal = getInvestBalance(inv.id);
+        var pct = patrimonio > 0 ? (bal / patrimonio * 100).toFixed(1) : 0;
+        var typeColors = {cdb:'#4ade80', lci:'#7dd3fc', lca:'#7dd3fc', tesouro:'#fbbf24', acoes:'#f87171', fii:'#a78bfa', cripto:'#fb923c', outro:'#94a3b8'};
+        var color = typeColors[inv.type] || '#94a3b8';
+        return '<div class="invest-card">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
+            '<div>' +
+              '<div style="font-size:14px;font-weight:600">' + inv.name + '</div>' +
+              '<div style="font-size:11.5px;color:var(--text3);margin-top:2px">' + inv.broker + ' · ' + inv.type.toUpperCase() + '</div>' +
+            '</div>' +
+            '<div style="text-align:right">' +
+              '<div style="font-size:15px;font-weight:600;font-family:DM Mono,monospace;color:#a78bfa">' + fmt(bal) + '</div>' +
+              '<div style="font-size:11px;color:var(--text3)">' + pct + '% da carteira</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="invest-bar"><div class="invest-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+          '<div style="display:flex;gap:6px;margin-top:6px">' +
+            '<button onclick="openInvestOp(\"' + inv.id + '\",\"aporte\")" style="flex:1;font-size:11px;padding:5px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);border-radius:6px;cursor:pointer;color:var(--green)">+ Aporte</button>' +
+            '<button onclick="openInvestOp(\"' + inv.id + '\",\"resgate\")" style="flex:1;font-size:11px;padding:5px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">- Resgate</button>' +
+            '<button onclick="openInvestOp(\"' + inv.id + '\",\"rendimento\")" style="flex:1;font-size:11px;padding:5px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:6px;cursor:pointer;color:#a78bfa">~ Rendimento</button>' +
+            '<button onclick="deleteInvest(\"' + inv.id + '\")" style="font-size:11px;padding:5px 8px;background:none;border:1px solid var(--border2);border-radius:6px;cursor:pointer;color:var(--text3)">🗑</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+  }
+
+  // Operation form
+  document.getElementById('invest-op-form').innerHTML =
+    '<div style="font-size:13px;color:var(--text3);padding:12px 0">Selecione um investimento e clique em Aporte, Resgate ou Rendimento para registrar uma operação.</div>';
+
+  // History
+  var history = (state.investTxs || []).slice().sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0,20);
+  if (history.length === 0) {
+    document.getElementById('invest-history').innerHTML =
+      '<div style="font-size:13px;color:var(--text3);padding:12px 0">Nenhuma operação registrada ainda.</div>';
+  } else {
+    var opColors = {aporte:'var(--green)', resgate:'var(--red)', rendimento:'#a78bfa'};
+    var opLabels = {aporte:'Aporte', resgate:'Resgate', rendimento:'Rendimento'};
+    document.getElementById('invest-history').innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:8px">' +
+      history.map(function(tx) {
+        var inv = (state.investments||[]).find(function(i){return i.id===tx.investId;});
+        var color = opColors[tx.op] || 'var(--text2)';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:8px">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:500">' + (inv?inv.name:'—') + '</div>' +
+            '<div style="font-size:11px;color:var(--text3)">' + new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') + ' · <span style="color:' + color + '">' + (opLabels[tx.op]||tx.op) + '</span>' + (tx.notes?' · '+tx.notes:'') + '</div>' +
+          '</div>' +
+          '<div style="font-family:DM Mono,monospace;font-size:13px;color:' + color + '">' + (tx.op==='resgate'?'- ':tx.op==='aporte'?'+ ':'~ ') + fmt(tx.amount) + '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+  }
+}
+
+// ── Modal: novo investimento ──────────────────────────────────────────────────
+function openInvestModal() {
+  var types = ['cdb','lci','lca','tesouro','acoes','fii','cripto','outro'];
+  document.getElementById('invest-op-form').innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--accent2)">Novo Investimento</div>
+      <div class="form-group"><label class="form-label">Nome</label>
+        <input type="text" class="form-input" id="inv-new-name" placeholder="Ex: CDB Banco Inter 13%" style="font-size:13px"></div>
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select class="form-input" id="inv-new-type" style="font-size:13px">
+          ${types.map(function(t){return '<option value="'+t+'">'+t.toUpperCase()+'</option>';}).join('')}
+        </select></div>
+      <div class="form-group"><label class="form-label">Corretora / Banco</label>
+        <input type="text" class="form-input" id="inv-new-broker" placeholder="Ex: Banco Inter, XP, Nubank" style="font-size:13px"></div>
+      <div class="form-group" style="margin-bottom:16px"><label class="form-label">Observações</label>
+        <input type="text" class="form-input" id="inv-new-notes" placeholder="Ex: vence em 12/2026, CDI+1%" style="font-size:13px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="renderInvestments()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>
+        <button class="btn btn-accent" onclick="saveNewInvest()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Criar</button>
+      </div>
+    </div>`;
+}
+
+function saveNewInvest() {
+  var name   = document.getElementById('inv-new-name').value.trim();
+  var type   = document.getElementById('inv-new-type').value;
+  var broker = document.getElementById('inv-new-broker').value.trim();
+  var notes  = document.getElementById('inv-new-notes').value.trim();
+  if (!name || !broker) { showNotif('Preencha nome e corretora', 'error'); return; }
+  if (!state.investments) state.investments = [];
+  state.investments.push({ id: 'inv_'+Date.now(), name: name, type: type, broker: broker, notes: notes });
+  saveState();
+  showNotif('Investimento criado!', 'success');
+  renderInvestments();
+}
+
+function deleteInvest(id) {
+  if (!confirm('Excluir este investimento e todo seu histórico?')) return;
+  state.investments = (state.investments||[]).filter(function(i){return i.id!==id;});
+  state.investTxs   = (state.investTxs||[]).filter(function(t){return t.investId!==id;});
+  saveState();
+  showNotif('Investimento removido', 'success');
+  renderInvestments();
+}
+
+// ── Operações: Aporte / Resgate / Rendimento ──────────────────────────────────
+function openInvestOp(investId, op) {
+  var inv = (state.investments||[]).find(function(i){return i.id===investId;});
+  if (!inv) return;
+  var opLabels = {aporte:'Aporte', resgate:'Resgate', rendimento:'Rendimento'};
+  var opColors = {aporte:'var(--green)', resgate:'var(--red)', rendimento:'#a78bfa'};
+  var today = new Date().toISOString().split('T')[0];
+  var bal = getInvestBalance(investId);
+  document.getElementById('invest-op-form').innerHTML =
+    '<div style="margin-bottom:6px">' +
+      '<div style="font-size:13px;font-weight:600;color:' + (opColors[op]||'var(--text)') + ';margin-bottom:4px">' + (opLabels[op]||op) + ' em ' + inv.name + '</div>' +
+      '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">Saldo atual: <strong style="color:#a78bfa">' + fmt(bal) + '</strong></div>' +
+      '<div class="form-group"><label class="form-label">Data</label>' +
+        '<input type="date" class="form-input" id="inv-op-date" value="' + today + '" style="font-size:13px"></div>' +
+      '<div class="form-group" style="margin-bottom:16px"><label class="form-label">Valor (R$)</label>' +
+        '<input type="number" step="0.01" class="form-input" id="inv-op-amount" placeholder="0,00" style="font-size:13px"></div>' +
+      (op === 'rendimento' ? '' :
+        '<div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:10px;margin-bottom:16px;font-size:12px;color:var(--text2)">' +
+        (op==='aporte' ? '💸 O valor será <strong>descontado do seu saldo disponível</strong> e adicionado ao patrimônio.' :
+                         '💰 O valor será <strong>adicionado ao seu saldo disponível</strong> e descontado do patrimônio.') +
+        '</div>') +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-ghost" onclick="renderInvestments()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>' +
+        '<button class="btn btn-accent" onclick="saveInvestOp(\"' + investId + '\",\"' + op + '\")" style="flex:1;justify-content:center;padding:10px;font-size:13px">Confirmar</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function saveInvestOp(investId, op) {
+  var amountEl = document.getElementById('inv-op-amount');
+  var dateEl   = document.getElementById('inv-op-date');
+  var amount = parseFloat(amountEl ? amountEl.value : 0);
+  var date   = dateEl ? dateEl.value : new Date().toISOString().split('T')[0];
+  if (!amount || amount <= 0) { showNotif('Informe um valor válido', 'error'); return; }
+
+  if (!state.investTxs) state.investTxs = [];
+  state.investTxs.push({ id: 'itx_'+Date.now(), investId: investId, op: op, amount: amount, date: date, notes: '' });
+
+  // Aporte: registra como saída no fluxo de caixa (mas tipo='invest', não 'expense')
+  // Resgate: registra como entrada no fluxo de caixa
+  if (op === 'aporte') {
+    var inv = (state.investments||[]).find(function(i){return i.id===investId;});
+    state.transactions.push({
+      id: 'tx_invest_'+Date.now(),
+      merchant: 'Aporte: ' + (inv?inv.name:'Investimento'),
+      amount: amount, date: date, cashDate: date,
+      categoryId: getInvestCatId(),
+      type: 'invest',
+      notes: 'Aporte automático', createdAt: new Date().toISOString()
+    });
+  } else if (op === 'resgate') {
+    var inv2 = (state.investments||[]).find(function(i){return i.id===investId;});
+    state.transactions.push({
+      id: 'tx_resgate_'+Date.now(),
+      merchant: 'Resgate: ' + (inv2?inv2.name:'Investimento'),
+      amount: amount, date: date, cashDate: date,
+      categoryId: getInvestCatId(),
+      type: 'income',
+      notes: 'Resgate de investimento', createdAt: new Date().toISOString()
+    });
+  }
+
+  saveState();
+  var labels = {aporte:'Aporte registrado!', resgate:'Resgate registrado!', rendimento:'Rendimento registrado!'};
+  showNotif(labels[op] || 'Operação registrada!', 'success');
+  renderInvestments();
+}
+
+function getInvestCatId() {
+  // Encontra ou usa primeira categoria disponível
+  var cat = state.categories.find(function(c) {
+    return c.name.toLowerCase().indexOf('invest') > -1;
+  });
+  return cat ? cat.id : (state.categories[0] ? state.categories[0].id : '');
 }
 
 // ─── SIDEBAR TOGGLE ──────────────────────────────────────────────────────────
