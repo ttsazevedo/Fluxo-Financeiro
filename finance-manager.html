@@ -1866,7 +1866,7 @@ function updateUserBadge() {
 function applyRoleRestrictions() {
   if (!currentUser) return;
   // Visualizador não pode lançar
-  var scanNav = document.querySelector('.nav-item[onclick="navigate('scan')"]');
+  var scanNav = document.querySelector('.nav-item[onclick*="navigate"]');
   var txBtn   = document.querySelector('.btn-accent[onclick="openTxModal()"]');
   if (!canEdit()) {
     if (scanNav) { scanNav.style.opacity = '0.4'; scanNav.style.pointerEvents = 'none'; }
