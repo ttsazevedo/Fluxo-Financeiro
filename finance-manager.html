@@ -651,9 +651,9 @@
               </div>
               <div class="upload-icon">🧾</div>
               <div class="upload-title">Arraste ou clique para enviar</div>
-              <div class="upload-sub">JPG, PNG ou PDF — comprovantes, notas fiscais, extratos</div>
+              <div class="upload-sub">JPG, PNG ou WEBP — comprovantes, notas fiscais, recibos</div>
             </div>
-            <input type="file" id="file-input" accept="image/*,.pdf" onchange="handleFileUpload(event)">
+            <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
           </div>
 
           <div class="card" id="scan-result-card" style="display:none;">
@@ -2517,17 +2517,48 @@ function parseOFX(text) {
 
 // ── CSV PARSER ────────────────────────────────────────────────────────────────
 function parseCSV(text) {
-  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  // Remove BOM
+  text = text.replace(/^\uFEFF/, '');
+  var allLines = text.split(/
+?
+/);
+
+  // Encontra linha de cabeçalho (primeira com separador que parece financeira)
+  var headerIdx = -1;
+  for (var h = 0; h < allLines.length; h++) {
+    var low = allLines[h].toLowerCase();
+    if ((allLines[h].includes(',') || allLines[h].includes(';')) &&
+        (low.includes('data') || low.includes('valor') || low.includes('descri') ||
+         low.includes('titulo') || low.includes('tulo') || low.includes('amount') || low.includes('date'))) {
+      headerIdx = h;
+      break;
+    }
+  }
+  if (headerIdx === -1) return [];
+
+  var lines = allLines.slice(headerIdx).filter(function(l) { return l.trim(); });
   if (lines.length < 2) return [];
 
   // Detecta separador
   var sep = ',';
-  var firstLine = lines[0];
-  if ((firstLine.match(/;/g)||[]).length > (firstLine.match(/,/g)||[]).length) sep = ';';
+  if ((lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length) sep = ';';
 
-  // Detecta cabeçalho e mapeamento de colunas
-  var headers = lines[0].split(sep).map(function(h) { return h.replace(/["
-]/g,'').toLowerCase().trim(); });
+  // Parser que respeita aspas
+  function splitLine(line) {
+    var result = [], cur = '', inQ = false;
+    for (var i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === sep && !inQ) { result.push(cur.trim()); cur = ''; }
+      else { cur += line[i]; }
+    }
+    result.push(cur.trim());
+    return result;
+  }
+
+ var rawHeaders = splitLine(lines[0]);
+  var headers = rawHeaders.map(function(h) { return h.replace(/["
+-]/g,'').toLowerCase().trim(); });
+  var numCols = headers.length;
 
   function findCol(patterns) {
     for (var i = 0; i < headers.length; i++) {
@@ -2538,67 +2569,74 @@ function parseCSV(text) {
     return -1;
   }
 
-  var colDate   = findCol(['data','date','dt','dia']);
-  var colDesc   = findCol(['descri','memo','histor','estabelec','name','nome','lançamento','lancamento']);
-  var colAmt    = findCol(['valor','amount','vl ','vlr','debit','credit','débito','crédito','value']);
-  var colType   = findCol(['tipo','type','natureza','dc','deb/cred']);
-  var colAmt2   = findCol(['crédito','credito','credit']); // separado para bancos que separam colunas
+  var colDate  = findCol(['data lan','data','date','dt','dia']);
+  var colTitle = findCol(['tulo','title','name','nome']);
+  var colDesc  = findCol(['descri','memo','histor','estabelec']);
+  var colIn    = findCol(['entrada','entrada(r','credito','credit','receita']);
+  var colOut   = findCol(['saida','saida(r','da(r','debito','debit','pagamento']);
+  var colAmt   = findCol(['valor','amount','vlr','value']);
+  var colType  = findCol(['tipo','type','natureza','dc','deb']);
 
-  if (colDate === -1 && colDesc === -1) return []; // não parece CSV financeiro
+  if (colDate === -1) return [];
+
+  // Detecção posicional C6 Bank: 7 colunas padrão
+  // Data Lançamento, Data Contábil, Título, Descrição, Entrada(R$), Saída(R$), Saldo
+  if (numCols === 7 && colIn === -1 && colOut === -1) {
+    colTitle = 2; colDesc = 3; colIn = 4; colOut = 5;
+  }
 
   var txs = [];
 
   for (var i = 1; i < lines.length; i++) {
-    var cols = lines[i].split(sep).map(function(c) { return c.replace(/["
-]/g,'').trim(); });
+    var cols = splitLine(lines[i]);
     if (cols.length < 2) continue;
 
-    var dateRaw = colDate >= 0 ? cols[colDate] : '';
-    var desc    = colDesc >= 0 ? cols[colDesc] : cols[1] || '';
-    var amtRaw  = colAmt  >= 0 ? cols[colAmt]  : '';
-    var typeRaw = colType >= 0 ? cols[colType]  : '';
+    var dateRaw = cols[colDate] || '';
+    var desc = '';
+    if (colDesc >= 0 && cols[colDesc] && cols[colDesc].replace(/["']/g,'').trim()) {
+      desc = cols[colDesc].replace(/["']/g,'').trim();
+    } else if (colTitle >= 0 && cols[colTitle]) {
+      desc = cols[colTitle].replace(/["']/g,'').trim();
+    }
+    if (!desc || desc.toLowerCase().includes('saldo do dia')) continue;
 
-    // Normaliza data: DD/MM/YYYY → YYYY-MM-DD
-    var date = '';
-    var dm = dateRaw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+    // Normaliza data DD/MM/YYYY → YYYY-MM-DD
+    var date = dateRaw;
+    var dm = dateRaw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (dm) {
       var y = dm[3].length === 2 ? '20' + dm[3] : dm[3];
-      var mo = dm[2].padStart(2,'0');
-      var d  = dm[1].padStart(2,'0');
-      // Tenta detectar se é DD/MM ou MM/DD
-      if (parseInt(dm[1]) > 12) date = y + '-' + mo + '-' + d;
-      else date = y + '-' + mo + '-' + d;
-    } else {
-      date = dateRaw;
+      date = y + '-' + dm[2].padStart(2,'0') + '-' + dm[1].padStart(2,'0');
     }
 
-    // Normaliza valor
-    var amtClean = amtRaw.replace(/[R$\s]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
-    var amt = parseFloat(amtClean) || 0;
-    if (!amt && colAmt2 >= 0) {
-      var amt2Clean = cols[colAmt2].replace(/[R$\s]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
-      amt = parseFloat(amt2Clean) || 0;
-    }
-    if (!amt) continue;
+    var amt = 0, type = 'expense';
 
-    // Detecta tipo
-    var type = 'expense';
-    if (typeRaw) {
-      var tl = typeRaw.toLowerCase();
-      if (tl.includes('c') || tl.includes('cred') || tl.includes('entrada') || tl.includes('receb')) type = 'income';
-      if (tl.includes('d') || tl.includes('deb')  || tl.includes('saída') || tl.includes('pag')) type = 'expense';
-    } else {
-      // Sem coluna de tipo: valores negativos = despesa
-      if (amtRaw.includes('-') || amtClean.startsWith('-')) type = 'expense';
-      else type = 'income';
-    }
+    if (colIn >= 0 && colOut >= 0) {
+      // Formato com colunas separadas (C6, Inter)
+      var inRaw  = (cols[colIn]  || '').replace(/[R$\s"]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+      var outRaw = (cols[colOut] || '').replace(/[R$\s"]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+      var inVal  = parseFloat(inRaw)  || 0;
+      var outVal = parseFloat(outRaw) || 0;
+      if (outVal > 0)     { amt = outVal; type = 'expense'; }
+      else if (inVal > 0) { amt = inVal;  type = 'income'; }
+      else continue;
+    } else if (colAmt >= 0) {
+      var raw   = (cols[colAmt] || '').replace(/[R$\s"]/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+      amt = parseFloat(raw) || 0;
+      if (!amt) continue;
+      if (colType >= 0) {
+        var tl = (cols[colType]||'').toLowerCase();
+        type = (tl.includes('c')||tl.includes('entrada')||tl.includes('receita')) ? 'income' : 'expense';
+      } else {
+        type = raw.startsWith('-') ? 'expense' : 'income';
+      }
+      amt = Math.abs(amt);
+    } else continue;
 
-    if (!desc) continue;
-    txs.push({ merchant: desc, amount: Math.abs(amt), date, type, notes: '', category_id: '' });
+    txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '' });
   }
-
   return txs;
 }
+
 
 // ── XML PARSER ────────────────────────────────────────────────────────────────
 function parseXML(text) {
