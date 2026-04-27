@@ -2621,6 +2621,43 @@ function parseCSV(text) {
   return txs;
 }
 
+// ── AUTO CATEGORY ──────────────────────────
+function autoCategory(merchant, type) {
+  if (type === 'income') {
+    var incCat = state.categories.find(function(c) {
+      return c.name.toLowerCase().indexOf('sal') > -1 ||
+             c.name.toLowerCase().indexOf('receita') > -1 ||
+             c.name.toLowerCase().indexOf('renda') > -1;
+    });
+    if (incCat) return incCat.id;
+  }
+  var m = (merchant || '').toLowerCase();
+  var rules = [
+    [['supermercado','carrefour','extra','mercado','hortifruti','atacadao','pao de acucar'], 'Alimentacao'],
+    [['restaurante','lanche','pizza','burger','ifood','rappi','uber eats','delivery'], 'Alimentacao'],
+    [['uber','99taxi','taxi','metro','onibus','combustivel','posto','shell','ipiranga'], 'Transporte'],
+    [['farmacia','drogaria','hospital','medico','consulta','saude','unimed'], 'Saude'],
+    [['netflix','spotify','amazon','disney','youtube','prime','assinatura'], 'Lazer'],
+    [['shopping','renner','riachuelo','zara','americanas'], 'Vestuario'],
+    [['energia','agua','gas','internet','telefone','claro','vivo','tim','enel','cpfl'], 'Moradia'],
+    [['escola','faculdade','curso','livro','udemy'], 'Educacao'],
+  ];
+  for (var i = 0; i < rules.length; i++) {
+    var keywords = rules[i][0];
+    var catName  = rules[i][1];
+    for (var j = 0; j < keywords.length; j++) {
+      if (m.indexOf(keywords[j]) > -1) {
+        // Try exact name match first, then partial
+        var cat = state.categories.find(function(c) {
+          return c.name.toLowerCase().replace(/[^a-z]/g,'').indexOf(catName.toLowerCase()) > -1;
+        });
+        if (cat) return cat.id;
+      }
+    }
+  }
+  return state.categories[0] ? state.categories[0].id : '';
+}
+
 // ── DUPLICATE DETECTION ────────────────────────────────────────────────────────
 function detectDuplicates(incoming) {
   var dupes = new Set();
