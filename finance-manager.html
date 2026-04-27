@@ -2519,8 +2519,7 @@ function parseOFX(text) {
 function parseCSV(text) {
   // Remove BOM
   text = text.replace(/^\uFEFF/, '');
-  var allLines = text.split(/
-?
+  var allLines = text.split(/?
 /);
 
   // Encontra linha de cabeçalho (primeira com separador que parece financeira)
@@ -2555,9 +2554,8 @@ function parseCSV(text) {
     return result;
   }
 
- var rawHeaders = splitLine(lines[0]);
-  var headers = rawHeaders.map(function(h) { return h.replace(/["
--]/g,'').toLowerCase().trim(); });
+  var rawHeaders = splitLine(lines[0]);
+  var headers = rawHeaders.map(function(h) { return h.replace(/[" -]/g,'').toLowerCase().trim(); });
   var numCols = headers.length;
 
   function findCol(patterns) {
