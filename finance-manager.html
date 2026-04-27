@@ -224,6 +224,14 @@
   .content::-webkit-scrollbar { width: 4px; }
   .content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
+  /* INVITE / REGISTER SCREEN */
+  .register-screen {
+    display: none; position: fixed; inset: 0;
+    background: var(--bg); z-index: 210;
+    align-items: center; justify-content: center;
+  }
+  .register-screen.show { display: flex; }
+
   /* CARDS */
   .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
   .kpi-card {
@@ -928,22 +936,28 @@ const defaultCats = [
 
 let state = loadState();
 
+function userKey(suffix) {
+  // Isola dados por usuário — cada um tem seu próprio espaço
+  var email = (currentUser && currentUser.email) ? currentUser.email : 'guest';
+  return 'fluxo_' + email.replace(/[^a-z0-9]/gi, '_') + '_' + suffix;
+}
 function loadState() {
   try {
-    const s = localStorage.getItem('fluxo_v2');
+    // Tenta chave isolada por usuário primeiro, depois chave legada
+    var s = localStorage.getItem(userKey('v2')) || localStorage.getItem('fluxo_v2');
     if (s) return JSON.parse(s);
   } catch(e) {}
   return {
     categories: defaultCats,
     transactions: [],
-    mappings: {}, // merchant -> categoryId
+    mappings: {},
     editingCatId: null,
     editingTxId: null,
     currentTxType: 'expense',
     reportTab: 'competencia',
   };
 }
-function saveState() { localStorage.setItem('fluxo_v2', JSON.stringify(state)); }
+function saveState() { localStorage.setItem(userKey('v2'), JSON.stringify(state)); }
 
 // ─── NAVIGATION ─────────────────────────────────────────────────────────────
 let currentPage = 'dashboard';
@@ -1990,6 +2004,12 @@ async function renderUserPanel() {
       '<div style="font-size:13px;color:var(--text3);padding:12px 0">Apenas admins gerenciam usuários.</div>';
     return;
   }
+  // Add invite button for admin
+  var invBtn = document.getElementById('admin-invite-btn');
+  if (!invBtn) {
+    var btnHtml = '<button class="btn btn-ghost" onclick="openInviteManager()" id="admin-invite-btn" style="width:100%;justify-content:center;margin-bottom:14px;padding:9px;border-color:rgba(125,211,252,0.3);color:var(--accent2)">✉️ Gerenciar Convites</button>';
+    document.getElementById('user-panel-content').insertAdjacentHTML('beforebegin', btnHtml);
+  }
 
   // Admin: lista de usuários
   document.getElementById('user-panel-content').innerHTML =
@@ -2115,6 +2135,170 @@ async function toggleUserActive(email, currentActive) {
   renderUserPanel();
 }
 
+// ─── INVITE SYSTEM ───────────────────────────────────────────────────────────
+var currentInviteToken = null;
+
+async function checkInviteLink() {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('invite');
+  if (!token) return false;
+
+  currentInviteToken = token;
+
+  // Esconde login, mostra tela de registro
+  document.getElementById('login-screen').classList.remove('show');
+  document.getElementById('register-screen').classList.add('show');
+
+  try {
+    var r = await fetch(WORKER_BASE + '/invites/' + token);
+    var data = await r.json();
+    if (!r.ok) {
+      document.getElementById('register-error').textContent = data.error || 'Convite inválido';
+      document.getElementById('register-screen').querySelector('.btn').disabled = true;
+      return true;
+    }
+    document.getElementById('register-email-display').textContent = data.email;
+    document.getElementById('register-name').value = data.name;
+    document.getElementById('register-subtitle').textContent =
+      'Olá, ' + data.name + '! Configure sua senha para acessar o Fluxo.';
+  } catch(e) {
+    document.getElementById('register-error').textContent = 'Erro ao validar convite.';
+  }
+  return true;
+}
+
+async function submitRegister() {
+  var name = document.getElementById('register-name').value.trim();
+  var pwd1 = document.getElementById('register-pwd1').value;
+  var pwd2 = document.getElementById('register-pwd2').value;
+  var errEl = document.getElementById('register-error');
+  errEl.textContent = '';
+
+  if (!name)          { errEl.textContent = 'Digite seu nome'; return; }
+  if (pwd1.length < 6){ errEl.textContent = 'Senha deve ter no mínimo 6 caracteres'; return; }
+  if (pwd1 !== pwd2)  { errEl.textContent = 'As senhas não coincidem'; return; }
+
+  try {
+    var r = await fetch(WORKER_BASE + '/invites/' + currentInviteToken + '/accept', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, password: pwd1})
+    });
+    var data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Erro ao criar conta'; return; }
+
+    // Login automático após cadastro
+    setToken(data.token);
+    currentUser = data.user;
+    document.getElementById('register-screen').classList.remove('show');
+    // Limpa o ?invite= da URL
+    window.history.replaceState({}, '', window.location.pathname);
+    updateUserBadge();
+    renderDashboard();
+    renderScan();
+    updateApiKeyStatus();
+    showNotif('🎉 Conta criada! Bem-vindo ao Fluxo, ' + data.user.name + '!', 'success');
+  } catch(e) {
+    errEl.textContent = 'Erro de conexão. Tente novamente.';
+  }
+}
+
+// ── ADMIN: gerar e gerenciar convites ─────────────────────────────────────────
+async function openInviteManager() {
+  // Abre dentro do user panel
+  document.getElementById('user-panel').classList.add('open');
+  document.getElementById('user-panel-overlay').classList.add('show');
+  document.getElementById('user-panel-content').innerHTML =
+    '<div style="font-size:12px;color:var(--text3)">Carregando convites...</div>';
+  document.getElementById('current-user-info').innerHTML = `
+    <button onclick="renderUserPanel()" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:13px;padding:0;margin-bottom:4px">← Voltar</button>
+    <div style="font-family:'Playfair Display',serif;font-size:16px;font-weight:600;margin-bottom:16px">Convites</div>
+  `;
+  await renderInvitePanel();
+}
+
+async function renderInvitePanel() {
+  try {
+    var r = await authFetch('/invites');
+    var invites = await r.json();
+    var html = `
+      <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Novo convite</div>
+        <div class="form-group"><label class="form-label">Nome do convidado</label>
+          <input type="text" class="form-input" id="inv-name" placeholder="Ex: Maria Silva" style="font-size:13px;padding:8px 10px"></div>
+        <div class="form-group" style="margin-bottom:12px"><label class="form-label">Email</label>
+          <input type="email" class="form-input" id="inv-email" placeholder="email@..." style="font-size:13px;padding:8px 10px"></div>
+        <button class="btn btn-accent" style="width:100%;justify-content:center;padding:9px;font-size:13px" onclick="generateInvite()">
+          Gerar link de convite
+        </button>
+      </div>
+      <div id="invite-link-result" style="display:none;background:rgba(200,240,77,0.06);border:1px solid rgba(200,240,77,0.2);border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Link gerado (válido por 7 dias):</div>
+        <div id="invite-link-text" style="font-size:11.5px;word-break:break-all;color:var(--accent2);margin-bottom:10px"></div>
+        <button class="btn btn-ghost" style="width:100%;justify-content:center;padding:8px;font-size:12px" onclick="copyInviteLink()">
+          📋 Copiar link
+        </button>
+      </div>
+      ${invites.length > 0 ? `
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Convites ativos (${invites.length})</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${invites.map(inv => `
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div style="font-size:13px;font-weight:500">${inv.name}</div>
+                <div style="font-size:11px;color:var(--text3)">${inv.email}</div>
+                <div style="font-size:10px;color:var(--text3);margin-top:4px">
+                  Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
+                </div>
+              </div>
+              <button onclick="revokeInvite('${inv.token}')"
+                style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+                Revogar
+              </button>
+            </div>
+          </div>`).join('')}
+      </div>` : '<div style="font-size:12.5px;color:var(--text3)">Nenhum convite ativo</div>'}
+    `;
+    document.getElementById('user-panel-content').innerHTML = html;
+  } catch(e) {
+    document.getElementById('user-panel-content').innerHTML =
+      '<div style="color:var(--red);font-size:13px">Erro ao carregar convites</div>';
+  }
+}
+
+var lastInviteLink = '';
+async function generateInvite() {
+  var name  = document.getElementById('inv-name').value.trim();
+  var email = document.getElementById('inv-email').value.trim();
+  if (!name || !email) { showNotif('Preencha nome e email', 'error'); return; }
+  var r = await authFetch('/invites', {method:'POST', body:JSON.stringify({name, email})});
+  var data = await r.json();
+  if (!r.ok) { showNotif(data.error || 'Erro ao gerar convite', 'error'); return; }
+  lastInviteLink = data.link;
+  document.getElementById('invite-link-text').textContent = data.link;
+  document.getElementById('invite-link-result').style.display = 'block';
+  document.getElementById('inv-name').value = '';
+  document.getElementById('inv-email').value = '';
+  showNotif('Convite gerado! Copie o link e envie.', 'success');
+  await renderInvitePanel();
+}
+
+function copyInviteLink() {
+  navigator.clipboard.writeText(lastInviteLink).then(() => {
+    showNotif('Link copiado!', 'success');
+  }).catch(() => {
+    prompt('Copie o link abaixo:', lastInviteLink);
+  });
+}
+
+async function revokeInvite(token) {
+  var r = await authFetch('/invites/' + token, {method:'DELETE'});
+  if (!r.ok) { showNotif('Erro ao revogar', 'error'); return; }
+  showNotif('Convite revogado', 'success');
+  await renderInvitePanel();
+}
+
 // ─── SIDEBAR TOGGLE ──────────────────────────────────────────────────────────
 function toggleSidebar() {
   const sb = document.getElementById('sidebar');
@@ -2143,9 +2327,17 @@ function closeMobileSidebar() {
 // Mostra login por padrão — esconde só após autenticação confirmada
 document.getElementById('login-screen').classList.add('show');
 
+// Copia logo para register screen
+var logoSrc = document.querySelector('.login-logo') ? document.querySelector('.login-logo').src : '';
+if (document.getElementById('register-logo')) document.getElementById('register-logo').src = logoSrc;
+
 // Verifica autenticação antes de mostrar o app
 (async function initApp() {
   try {
+    // Verifica primeiro se é um link de convite
+    var isInvite = await checkInviteLink();
+    if (isInvite) return;
+
     var token = getToken();
     console.log('[Fluxo] Token encontrado:', !!token);
 
@@ -2197,5 +2389,33 @@ document.getElementById('login-screen').classList.add('show');
 
 
 </html>
+<!-- REGISTER SCREEN (via invite link) -->
+<div class="register-screen" id="register-screen">
+  <div class="login-box">
+    <img src="" class="login-logo" alt="Fluxo" id="register-logo">
+    <div class="login-title">Criar sua conta</div>
+    <div id="register-subtitle" class="login-sub">Você foi convidado para o Fluxo</div>
+    <div style="background:rgba(200,240,77,0.08);border:1px solid rgba(200,240,77,0.2);border-radius:10px;padding:12px;margin-bottom:20px;text-align:left">
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:4px">Convite para</div>
+      <div style="font-size:14px;font-weight:500" id="register-email-display">—</div>
+    </div>
+    <div class="form-group" style="text-align:left">
+      <label class="form-label">Seu nome</label>
+      <input type="text" class="form-input" id="register-name" placeholder="Como quer ser chamado">
+    </div>
+    <div class="form-group" style="text-align:left">
+      <label class="form-label">Senha</label>
+      <input type="password" class="form-input" id="register-pwd1" placeholder="Mínimo 6 caracteres">
+    </div>
+    <div class="form-group" style="text-align:left;margin-bottom:20px">
+      <label class="form-label">Confirmar senha</label>
+      <input type="password" class="form-input" id="register-pwd2" placeholder="Repita a senha" onkeydown="if(event.key==='Enter')submitRegister()">
+    </div>
+    <button class="btn btn-accent" style="width:100%;justify-content:center;padding:12px;font-size:15px" onclick="submitRegister()">
+      Criar minha conta →
+    </button>
+    <div id="register-error" style="color:var(--red);font-size:12.5px;margin-top:12px;min-height:18px"></div>
+  </div>
+</div>
 </body>
 </html>
