@@ -2592,11 +2592,20 @@ function parseCSV(text) {
     if (cols.length < 2) continue;
     var dateRaw = cols[colDate] || '';
     var desc = '';
-    if (colDesc >= 0 && cols[colDesc]) {
-      desc = cols[colDesc].replace(/"/g,'').trim();
-    }
-    if (!desc && colTitle >= 0 && cols[colTitle]) {
-      desc = cols[colTitle].replace(/"/g,'').trim();
+    var titleVal = colTitle >= 0 && cols[colTitle] ? cols[colTitle].replace(/"/g,'').trim() : '';
+    var descVal  = colDesc  >= 0 && cols[colDesc]  ? cols[colDesc].replace(/"/g,'').trim()  : '';
+    // Combina Titulo + Descricao para dar mais contexto (ex: C6 Bank)
+    if (titleVal && descVal && titleVal.toLowerCase() !== descVal.toLowerCase()) {
+      // Se descricao e generica (Boleto, PIX, etc), usa titulo como principal
+      var genericDescs = ['boleto','pix','fatura','debito','credito','transf'];
+      var isGeneric = genericDescs.some(function(g) { return descVal.toLowerCase().indexOf(g) > -1; });
+      if (isGeneric) {
+        desc = titleVal + (descVal ? ' (' + descVal + ')' : '');
+      } else {
+        desc = descVal + (titleVal && titleVal !== descVal ? ' - ' + titleVal : '');
+      }
+    } else {
+      desc = titleVal || descVal;
     }
     if (!desc) continue;
     if (desc.toLowerCase().indexOf('saldo do dia') > -1) continue;
