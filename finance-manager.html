@@ -1991,6 +1991,10 @@ async function loginWithPassword() {
     currentUser = data.user;
     hideLoginScreen();
     updateUserBadge();
+    renderDashboard();
+    renderScan();
+    updateApiKeyStatus();
+    await loadFromServer();
     showNotif('Bem-vindo, ' + currentUser.name + '!', 'success');
   } catch(e) { errEl.textContent = 'Erro de conexão. Tente novamente.'; }
 }
@@ -2007,6 +2011,10 @@ async function handleGoogleCredential(response) {
     currentUser = data.user;
     hideLoginScreen();
     updateUserBadge();
+    renderDashboard();
+    renderScan();
+    updateApiKeyStatus();
+    await loadFromServer();
     showNotif('Bem-vindo, ' + currentUser.name + '!', 'success');
   } catch(e) { document.getElementById('login-error').textContent = 'Erro de conexão.'; }
 }
@@ -2311,6 +2319,7 @@ async function submitRegister() {
     renderDashboard();
     renderScan();
     updateApiKeyStatus();
+    await loadFromServer();
     showNotif('🎉 Conta criada! Bem-vindo ao Fluxo, ' + data.user.name + '!', 'success');
   } catch(e) {
     errEl.textContent = 'Erro de conexão. Tente novamente.';
@@ -3153,6 +3162,8 @@ if (document.getElementById('register-logo')) document.getElementById('register-
     renderScan();
     updateApiKeyStatus();
     checkOnboarding();
+    // Carrega dados do servidor
+    await loadFromServer();
 
   } catch(e) {
     console.error('[Fluxo] Erro inesperado na autenticação:', e);
