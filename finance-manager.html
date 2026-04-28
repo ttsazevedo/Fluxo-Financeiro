@@ -3006,8 +3006,9 @@ function getPatrimonio() {
   }, 0);
   // Soma transações do tipo 'invest' lançadas manualmente ou via extrato
   // que não foram geradas pelo módulo de investimentos (não têm 'Aporte:' no nome)
+  // Avulsos ainda não classificados (sem investId) — já classificados estão em investTxs
   var fromTx = (state.transactions||[]).filter(function(t) {
-    return t.type === 'invest' && t.merchant && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
+    return t.type === 'invest' && (!t.investId) && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
   }).reduce(function(acc, t) { return acc + t.amount; }, 0);
   return fromModule + fromTx;
 }
@@ -3074,6 +3075,28 @@ function renderInvestments() {
       }).join('') + '</div>';
   }
 
+  // Aportes avulsos não vinculados a um ativo
+  var avulsos = (state.transactions||[]).filter(function(t){
+    return t.type==='invest' && (!t.investId) && t.merchant.indexOf('Aporte:')===-1 && t.merchant.indexOf('Resgate:')===-1;
+  });
+  if (avulsos.length > 0) {
+    var avulsoHtml = '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">' +
+      '<div style="font-size:12px;font-weight:600;color:#f59e0b;margin-bottom:10px">⚠️ ' + avulsos.length + ' aporte(s) aguardando classificação</div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px">' +
+      avulsos.map(function(t) {
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px">' +
+          '<div>' +
+            '<div style="font-size:12.5px;font-weight:500">' + t.merchant + '</div>' +
+            '<div style="font-size:11px;color:var(--text3)">' + new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR') + ' · ' + fmt(t.amount) + '</div>' +
+          '</div>' +
+          '<button onclick="openClassifyInvest(\"' + t.id + '\")" style="font-size:11px;padding:5px 10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);border-radius:6px;cursor:pointer;color:#a78bfa;white-space:nowrap">Classificar →</button>' +
+        '</div>';
+      }).join('') +
+      '</div></div>';
+    var portEl = document.getElementById('invest-portfolio');
+    portEl.innerHTML = portEl.innerHTML + avulsoHtml;
+  }
+
   // Operation form
   document.getElementById('invest-op-form').innerHTML =
     '<div style="font-size:13px;color:var(--text3);padding:12px 0">Selecione um investimento e clique em Aporte, Resgate ou Rendimento para registrar uma operação.</div>';
@@ -3084,7 +3107,7 @@ function renderInvestments() {
     return {date:tx.date, label:inv?inv.name:'Investimento', op:tx.op, amount:tx.amount, notes:tx.notes||''};
   });
   var avulsoHistory = (state.transactions||[]).filter(function(t){
-    return t.type==='invest' && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
+    return t.type==='invest' && (!t.investId) && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
   }).map(function(t){
     return {date:t.date, label:t.merchant, op:'aporte', amount:t.amount, notes:t.notes||''};
   });
@@ -3113,6 +3136,70 @@ function renderInvestments() {
 }
 
 // ── Modal: novo investimento ──────────────────────────────────────────────────
+function openClassifyInvest(txId) {
+  var tx = (state.transactions||[]).find(function(t){ return t.id === txId; });
+  if (!tx) return;
+  var invOptions = (state.investments||[]).map(function(inv){
+    return '<option value="'+inv.id+'">'+inv.name+' ('+inv.type.toUpperCase()+')</option>';
+  }).join('');
+  var types = ['cdb','lci','lca','tesouro','acoes','fii','cripto','outro'];
+  document.getElementById('invest-op-form').innerHTML =
+    '<div>' +
+      '<div style="font-size:13px;font-weight:600;color:#f59e0b;margin-bottom:4px">Classificar Aporte</div>' +
+      '<div style="font-size:12px;color:var(--text3);margin-bottom:14px">' + tx.merchant + ' · ' + fmt(tx.amount) + ' · ' + new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') + '</div>' +
+      '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Vincular a investimento existente:</div>' +
+      (invOptions ?
+        '<div class="form-group" style="margin-bottom:14px"><select class="form-input" id="classify-existing" style="font-size:13px"><option value="">— Selecione —</option>' + invOptions + '</select></div>' +
+        '<button class="btn btn-accent" onclick="confirmClassifyExisting(\"' + txId + '\")" style="width:100%;justify-content:center;padding:9px;font-size:13px;margin-bottom:16px">Vincular ao selecionado</button>' :
+        '<div style="font-size:12px;color:var(--text3);margin-bottom:14px">Nenhum investimento cadastrado ainda.</div>') +
+      '<div style="border-top:1px solid var(--border);padding-top:14px;font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Ou criar novo investimento:</div>' +
+      '<div class="form-group"><label class="form-label">Nome do ativo</label>' +
+        '<input type="text" class="form-input" id="classify-name" placeholder="Ex: CDB Banco Inter 13%" style="font-size:13px"></div>' +
+      '<div class="form-row">' +
+        '<div class="form-group"><label class="form-label">Tipo</label>' +
+          '<select class="form-input" id="classify-type" style="font-size:13px">' +
+            types.map(function(t){return '<option value="'+t+'">'+t.toUpperCase()+'</option>';}).join('') +
+          '</select></div>' +
+        '<div class="form-group"><label class="form-label">Corretora/Banco</label>' +
+          '<input type="text" class="form-input" id="classify-broker" placeholder="Ex: Nubank, XP" style="font-size:13px"></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:4px">' +
+        '<button class="btn btn-ghost" onclick="renderInvestments()" style="flex:1;justify-content:center;padding:9px;font-size:13px">Cancelar</button>' +
+        '<button class="btn btn-accent" onclick="confirmClassifyNew(\"' + txId + '\")" style="flex:1;justify-content:center;padding:9px;font-size:13px">Criar e vincular</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function confirmClassifyExisting(txId) {
+  var invId = document.getElementById('classify-existing').value;
+  if (!invId) { showNotif('Selecione um investimento', 'error'); return; }
+  _linkTxToInvest(txId, invId);
+}
+
+function confirmClassifyNew(txId) {
+  var name   = (document.getElementById('classify-name')||{}).value||'';
+  var type   = (document.getElementById('classify-type')||{}).value||'outro';
+  var broker = (document.getElementById('classify-broker')||{}).value||'';
+  if (!name.trim()) { showNotif('Informe o nome do ativo', 'error'); return; }
+  if (!state.investments) state.investments = [];
+  var newInv = { id: 'inv_'+Date.now(), name: name.trim(), type: type, broker: broker.trim(), notes: '' };
+  state.investments.push(newInv);
+  _linkTxToInvest(txId, newInv.id);
+}
+
+function _linkTxToInvest(txId, invId) {
+  var tx = (state.transactions||[]).find(function(t){ return t.id === txId; });
+  if (!tx) return;
+  // Mark transaction as classified
+  tx.investId = invId;
+  // Add to investTxs for proper balance tracking
+  if (!state.investTxs) state.investTxs = [];
+  state.investTxs.push({ id: 'itx_'+Date.now(), investId: invId, op: 'aporte', amount: tx.amount, date: tx.date, notes: tx.notes||'' });
+  saveState();
+  showNotif('Aporte classificado com sucesso!', 'success');
+  renderInvestments();
+}
+
 function openInvestModal() {
   var types = ['cdb','lci','lca','tesouro','acoes','fii','cripto','outro'];
   document.getElementById('invest-op-form').innerHTML = `
