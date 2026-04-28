@@ -1045,20 +1045,12 @@ const defaultCats = [
 
 let state = loadState();
 
-function userKey(suffix) {
-  // Isola dados por usuário — cada um tem seu próprio espaço
-  var email = (currentUser && currentUser.email) ? currentUser.email : 'guest';
-  return 'fluxo_' + email.replace(/[^a-z0-9]/gi, '_') + '_' + suffix;
-}
 function loadState() {
-  try {
-    // Tenta chave isolada por usuário primeiro, depois chave legada
-    var s = localStorage.getItem(userKey('v2')) || localStorage.getItem('fluxo_v2');
-    if (s) return JSON.parse(s);
-  } catch(e) {}
   return {
     categories: defaultCats,
     transactions: [],
+    investments: [],
+    investTxs: [],
     mappings: {},
     editingCatId: null,
     editingTxId: null,
@@ -1066,7 +1058,55 @@ function loadState() {
     reportTab: 'competencia',
   };
 }
-function saveState() { localStorage.setItem(userKey('v2'), JSON.stringify(state)); }
+
+// ── SYNC COM SERVIDOR D1 ──────────────────────────────────────────────────────
+var syncTimer = null;
+
+function saveState() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncToServer, 1500);
+}
+
+async function syncToServer() {
+  if (!currentUser) return;
+  try {
+    var r = await authFetch('/data', {
+      method: 'POST',
+      body: JSON.stringify({
+        categories  : state.categories   || [],
+        transactions: state.transactions || [],
+        investments : state.investments  || [],
+        investTxs   : state.investTxs    || [],
+        mappings    : state.mappings     || {},
+      })
+    });
+    if (!r.ok) {
+      var err = await r.json().catch(()=>({}));
+      console.error('[Fluxo] Erro ao salvar:', err.error);
+    }
+  } catch(e) { console.error('[Fluxo] syncToServer error:', e); }
+}
+
+async function loadFromServer() {
+  if (!currentUser) return;
+  try {
+    var r = await authFetch('/data');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    state.categories   = (data.categories   && data.categories.length)   ? data.categories   : defaultCats;
+    state.transactions = data.transactions || [];
+    state.investments  = data.investments  || [];
+    state.investTxs    = data.investTxs    || [];
+    state.mappings     = data.mappings     || {};
+    renderDashboard();
+    renderScan();
+    updateSidebarBalance();
+    console.log('[Fluxo] Dados carregados:', state.transactions.length, 'transações,', (state.investments||[]).length, 'investimentos');
+  } catch(e) {
+    console.error('[Fluxo] Erro ao carregar dados:', e);
+    showNotif('⚠️ Erro ao carregar dados do servidor', 'error');
+  }
+}
 
 // ─── NAVIGATION ─────────────────────────────────────────────────────────────
 let currentPage = 'dashboard';
@@ -1151,7 +1191,7 @@ function renderDashboard() {
     <div class="kpi-card green"><div class="kpi-label">Receitas</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='income').length} lançamentos</div><div class="kpi-icon">💰</div></div>
     <div class="kpi-card red"><div class="kpi-label">Despesas</div><div class="kpi-value" style="color:var(--red)">${fmt(expenses)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='expense').length} lançamentos</div><div class="kpi-icon">💸</div></div>
     <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${balance>=0?'Positivo':'Negativo'}</div><div class="kpi-icon">⚖️</div></div>
-    <div class="kpi-card purple"><div class="kpi-label">Patrimônio Investido</div><div class="kpi-value" style="color:#a78bfa">${fmt(getPatrimonio())}</div><div class="kpi-delta">${state.investments.length} investimento(s)</div><div class="kpi-icon">📈</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Patrimônio Investido</div><div class="kpi-value" style="color:#a78bfa">${fmt(getPatrimonio())}</div><div class="kpi-delta">${(state.investments||[]).length} investimento(s)</div><div class="kpi-icon">📈</div></div>
   `;
 
   // Bar chart
@@ -2049,6 +2089,9 @@ async function checkAuth() {
     currentUser = data;
     hideLoginScreen();
     updateUserBadge();
+    updateApiKeyStatus();
+    checkOnboarding();
+    await loadFromServer();
   } catch(e) { showLoginScreen(); }
 }
 
@@ -2088,8 +2131,6 @@ async function loginWithPassword() {
     currentUser = data.user;
     hideLoginScreen();
     updateUserBadge();
-    renderDashboard();
-    renderScan();
     updateApiKeyStatus();
     await loadFromServer();
     showNotif('Bem-vindo, ' + currentUser.name + '!', 'success');
@@ -2108,8 +2149,6 @@ async function handleGoogleCredential(response) {
     currentUser = data.user;
     hideLoginScreen();
     updateUserBadge();
-    renderDashboard();
-    renderScan();
     updateApiKeyStatus();
     await loadFromServer();
     showNotif('Bem-vindo, ' + currentUser.name + '!', 'success');
@@ -2413,8 +2452,6 @@ async function submitRegister() {
     // Limpa o ?invite= da URL
     window.history.replaceState({}, '', window.location.pathname);
     updateUserBadge();
-    renderDashboard();
-    renderScan();
     updateApiKeyStatus();
     await loadFromServer();
     showNotif('🎉 Conta criada! Bem-vindo ao Fluxo, ' + data.user.name + '!', 'success');
@@ -2962,7 +2999,7 @@ function confirmImport() {
 
 function getPatrimonio() {
   if (!state.investTxs) return 0;
-  return state.investTxs.reduce(function(acc, tx) {
+  return (state.investTxs||[]).reduce(function(acc, tx) {
     if (tx.op === 'aporte')     return acc + tx.amount;
     if (tx.op === 'resgate')    return acc - tx.amount;
     if (tx.op === 'rendimento') return acc + tx.amount;
@@ -2972,7 +3009,7 @@ function getPatrimonio() {
 
 function getInvestBalance(investId) {
   if (!state.investTxs) return 0;
-  return state.investTxs.filter(function(t) { return t.investId === investId; })
+  return (state.investTxs||[]).filter(function(t) { return t.investId === investId; })
     .reduce(function(acc, tx) {
       if (tx.op === 'aporte')     return acc + tx.amount;
       if (tx.op === 'resgate')    return acc - tx.amount;
@@ -2987,19 +3024,19 @@ function renderInvestments() {
 
   // KPIs
   var patrimonio = getPatrimonio();
-  var totalAporte   = state.investTxs.filter(function(t){return t.op==='aporte';}).reduce(function(a,t){return a+t.amount;},0);
-  var totalResgate  = state.investTxs.filter(function(t){return t.op==='resgate';}).reduce(function(a,t){return a+t.amount;},0);
-  var totalRend     = state.investTxs.filter(function(t){return t.op==='rendimento';}).reduce(function(a,t){return a+t.amount;},0);
+  var totalAporte   = (state.investTxs||[]).filter(function(t){return t.op==='aporte';}).reduce(function(a,t){return a+t.amount;},0);
+  var totalResgate  = (state.investTxs||[]).filter(function(t){return t.op==='resgate';}).reduce(function(a,t){return a+t.amount;},0);
+  var totalRend     = (state.investTxs||[]).filter(function(t){return t.op==='rendimento';}).reduce(function(a,t){return a+t.amount;},0);
   var rentab = totalAporte > 0 ? ((totalRend / totalAporte) * 100).toFixed(2) : '0.00';
 
   document.getElementById('invest-kpis').innerHTML =
-    '<div class="kpi-card purple"><div class="kpi-label">Patrimônio Total</div><div class="kpi-value" style="color:#a78bfa">' + fmt(patrimonio) + '</div><div class="kpi-delta">' + state.investments.length + ' ativos</div><div class="kpi-icon">📈</div></div>' +
+    '<div class="kpi-card purple"><div class="kpi-label">Patrimônio Total</div><div class="kpi-value" style="color:#a78bfa">' + fmt(patrimonio) + '</div><div class="kpi-delta">' + (state.investments||[]).length + ' ativos</div><div class="kpi-icon">📈</div></div>' +
     '<div class="kpi-card green"><div class="kpi-label">Total Aportado</div><div class="kpi-value" style="color:var(--green)">' + fmt(totalAporte) + '</div><div class="kpi-delta">bruto investido</div><div class="kpi-icon">💰</div></div>' +
     '<div class="kpi-card blue"><div class="kpi-label">Rendimentos</div><div class="kpi-value" style="color:var(--accent2)">' + fmt(totalRend) + '</div><div class="kpi-delta">rentab. ' + rentab + '%</div><div class="kpi-icon">📊</div></div>' +
     '<div class="kpi-card red"><div class="kpi-label">Resgates</div><div class="kpi-value" style="color:var(--red)">' + fmt(totalResgate) + '</div><div class="kpi-delta">retornado ao caixa</div><div class="kpi-icon">🏧</div></div>';
 
   // Portfolio
-  if (state.investments.length === 0) {
+  if ((state.investments||[]).length === 0) {
     document.getElementById('invest-portfolio').innerHTML =
       '<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">Nenhum investimento cadastrado.<br>Clique em <strong>+ Investimento</strong> para começar.</div>';
   } else {
@@ -3256,11 +3293,9 @@ if (document.getElementById('register-logo')) document.getElementById('register-
     currentUser = data;
     hideLoginScreen();
     updateUserBadge();
-    renderDashboard();
-    renderScan();
     updateApiKeyStatus();
     checkOnboarding();
-    // Carrega dados do servidor
+    // Carrega dados do servidor ANTES de renderizar
     await loadFromServer();
 
   } catch(e) {
