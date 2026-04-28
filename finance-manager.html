@@ -2608,14 +2608,21 @@ async function processImportFile(file) {
       transactions = parseOFX(text);
     } else if (ext === 'csv' || ext === 'txt') {
       var text = await readFileText(file);
-      transactions = parseCSV(text);
+      // Detecta se é fatura de cartão C6 ou extrato bancário
+      var decodedText = text.replace(/﻿/g, '');
+      if (isCreditCardCSV(decodedText)) {
+        msgEl.textContent = 'Fatura de cartão detectada…';
+        transactions = parseCreditCardCSV(decodedText);
+      } else {
+        transactions = parseCSV(text);
+      }
     } else if (ext === 'xml') {
       var text = await readFileText(file);
       transactions = parseXML(text);
     } else if (ext === 'pdf' || ext === 'xls' || ext === 'xlsx') {
-      // IA fallback para formatos não estruturados
-      msgEl.textContent = 'Enviando para IA…';
-      transactions = await parseWithAI(file);
+      // IA para PDFs de fatura (Santander, Inter, etc)
+      msgEl.textContent = 'Analisando fatura via IA…';
+      transactions = await parseCreditCardPDF(file);
     } else {
       // Tenta como texto primeiro, depois IA
       try {
@@ -2849,6 +2856,127 @@ function parseCSV(text) {
     txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '' });
   }
   return txs;
+}
+
+// ── CREDIT CARD CSV PARSER (C6 Bank fatura) ──────────────────────────────────
+function isCreditCardCSV(text) {
+  var firstLine = text.split('\n')[0].toLowerCase();
+  return firstLine.indexOf('data de compra') > -1 ||
+         firstLine.indexOf('final do cart') > -1 ||
+         firstLine.indexOf('parcela') > -1;
+}
+
+function parseCreditCardCSV(text) {
+  var lines = text.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  // Detect separator
+  var sep = lines[0].indexOf(';') > -1 ? ';' : ',';
+
+  function splitLine(line) {
+    var result = [], cur = '', inQ = false;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === sep && !inQ) { result.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    result.push(cur.trim());
+    return result;
+  }
+
+  var headers = splitLine(lines[0]).map(function(h){ return h.replace(/"/g,'').toLowerCase().trim(); });
+  // C6 columns: Data de Compra;Nome no Cartão;Final do Cartão;Categoria;Descrição;Parcela;Valor (em US$);Cotação (em R$);Valor (em R$)
+  var colDate  = headers.findIndex(function(h){ return h.indexOf('data') > -1; });
+  var colCard  = headers.findIndex(function(h){ return h.indexOf('final') > -1 || h.indexOf('cart') > -1; });
+  var colCat   = headers.findIndex(function(h){ return h.indexOf('categ') > -1; });
+  var colDesc  = headers.findIndex(function(h){ return h.indexOf('descri') > -1; });
+  var colParc  = headers.findIndex(function(h){ return h.indexOf('parcela') > -1; });
+  var colAmt   = headers.findLastIndex(function(h){ return h.indexOf('valor') > -1; }); // last valor = R$
+
+  if (colDate === -1 || colDesc === -1) return [];
+
+  var txs = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = splitLine(lines[i]);
+    if (cols.length < 3) continue;
+
+    var dateRaw = (cols[colDate] || '').replace(/"/g,'').trim();
+    var desc    = (cols[colDesc] || '').replace(/"/g,'').trim();
+    var cat     = colCat >= 0 ? (cols[colCat] || '').replace(/"/g,'').trim() : '';
+    var parcela = colParc >= 0 ? (cols[colParc] || '').replace(/"/g,'').trim() : '';
+    var amtRaw  = colAmt >= 0 ? (cols[colAmt] || '').replace(/"/g,'').trim() : '';
+
+    if (!desc || !amtRaw) continue;
+
+    // Parse amount
+    var amt = parseFloat(amtRaw.replace(',','.'));
+    if (isNaN(amt)) continue;
+
+    // Skip payments/credits (negative = credit/payment) — keep only expenses (positive)
+    if (amt <= 0) continue;
+    // Skip payments keywords
+    if (desc.toLowerCase().indexOf('pagamento') > -1 ||
+        desc.toLowerCase().indexOf('inclusao de pagamento') > -1 ||
+        desc.toLowerCase().indexOf('estorno') > -1) continue;
+
+    // Parse date DD/MM/YYYY
+    var date = '';
+    var dm = dateRaw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dm) date = dm[3] + '-' + dm[2].padStart(2,'0') + '-' + dm[1].padStart(2,'0');
+    else continue;
+
+    // Add parcela info to notes
+    var notes = '';
+    if (parcela && parcela !== 'Única' && parcela !== 'Única') notes = 'Parcela ' + parcela;
+    if (cat && cat !== '-') notes = (notes ? notes + ' · ' : '') + cat;
+
+    txs.push({ merchant: desc, amount: amt, date: date, type: 'expense', notes: notes, category_id: '' });
+  }
+  return txs;
+}
+
+// ── CREDIT CARD PDF PARSER (Santander, Inter via IA) ──────────────────────────
+async function parseCreditCardPDF(file) {
+  var overlay = document.getElementById('import-processing-overlay');
+  var msgEl   = document.getElementById('import-processing-msg');
+  msgEl.textContent = 'Enviando fatura para IA…';
+
+  var catList = state.categories.map(function(c){ return c.id + ':' + c.name; }).join(', ');
+  var prompt = 'Esta é uma fatura de cartão de crédito. Extraia TODAS as despesas (ignore pagamentos, estornos e créditos com valor negativo ou prefixo +). ' +
+    'Para cada despesa, retorne um objeto JSON com: merchant (nome do estabelecimento/descrição), amount (valor numérico positivo em R$), date (YYYY-MM-DD), type ("expense"), notes (número da parcela se houver, ex: "2/6"). ' +
+    'Retorne APENAS um array JSON puro sem markdown. Categorias disponíveis: ' + catList + '. Adicione category_id quando puder identificar.';
+
+  try {
+    var base64 = await fileToBase64Import(file);
+    var mimeType = file.type || 'application/pdf';
+    var token = getToken();
+
+    var resp = await fetch(WORKER_BASE + '/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ provider: ACTIVE_PROVIDER, prompt: prompt, base64: base64, mimeType: mimeType })
+    });
+
+    if (!resp.ok) {
+      var err = await resp.json().catch(function(){ return {}; });
+      throw new Error(err.error || 'Erro ' + resp.status);
+    }
+
+    var data = await resp.json();
+    var clean = data.result.replace(/```json|```/g,'').trim();
+    var parsed = JSON.parse(clean);
+    if (!Array.isArray(parsed)) parsed = [parsed];
+
+    // Filter out any credits/payments that IA might have included
+    parsed = parsed.filter(function(t){ return t.amount > 0 && t.type !== 'income'; });
+    return parsed;
+
+  } catch(e) {
+    console.error('[parseCreditCardPDF]', e);
+    showNotif('Erro ao processar PDF: ' + e.message, 'error');
+    return [];
+  }
 }
 
 // ── AUTO CATEGORY ──────────────────────────
