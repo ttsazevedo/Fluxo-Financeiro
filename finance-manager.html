@@ -584,17 +584,17 @@
   <div class="nav-section">Principal</div>
   <div class="nav-item active" onclick="navigate('dashboard')"><span class="nav-icon">⬡</span><span class="nav-item-label">Dashboard</span></div>
   <div class="nav-item" onclick="navigate('scan')"><span class="nav-icon">⊕</span><span class="nav-item-label">Lançar / Scan</span></div>
+  <div class="nav-item" onclick="navigate('import')"><span class="nav-icon">⊟</span><span class="nav-item-label">Importar Extrato</span></div>
   <div class="nav-item" onclick="navigate('transactions')"><span class="nav-icon">⊞</span><span class="nav-item-label">Transações</span></div>
 
   <div class="nav-section">Análise</div>
   <div class="nav-item" onclick="navigate('reports')"><span class="nav-icon">◈</span><span class="nav-item-label">Relatórios</span></div>
   <div class="nav-item" onclick="navigate('alerts')"><span class="nav-icon">◎</span><span class="nav-item-label">Alertas</span></div>
+  <div class="nav-item" onclick="navigate('investments')"><span class="nav-icon">◱</span><span class="nav-item-label">Investimentos</span></div>
 
   <div class="nav-section">Configurar</div>
   <div class="nav-item" onclick="navigate('categories')"><span class="nav-icon">◫</span><span class="nav-item-label">Categorias</span></div>
-  <div class="nav-item" id="admin-nav-item" onclick="openUserPanel()" style="display:none"><span class="nav-icon">👥</span><span class="nav-item-label">Usuários</span></div>
-  <div class="nav-item" onclick="navigate('import')"><span class="nav-icon">📥</span><span class="nav-item-label">Importar Extrato</span></div>
-  <div class="nav-item" onclick="navigate('investments')"><span class="nav-icon">📈</span><span class="nav-item-label">Investimentos</span></div>
+  <div class="nav-item" id="admin-nav-item" onclick="openUserPanel()" style="display:none"><span class="nav-icon">◭</span><span class="nav-item-label">Usuários</span></div>
 
   <div class="sidebar-footer">
     <div class="balance-chip">
@@ -2997,13 +2997,19 @@ function confirmImport() {
 // ─── INVESTMENTS ──────────────────────────────────────────────────────────────
 
 function getPatrimonio() {
-  if (!state.investTxs) return 0;
-  return (state.investTxs||[]).reduce(function(acc, tx) {
+  // Soma investTxs do módulo de investimentos
+  var fromModule = (state.investTxs||[]).reduce(function(acc, tx) {
     if (tx.op === 'aporte')     return acc + tx.amount;
     if (tx.op === 'resgate')    return acc - tx.amount;
     if (tx.op === 'rendimento') return acc + tx.amount;
     return acc;
   }, 0);
+  // Soma transações do tipo 'invest' lançadas manualmente ou via extrato
+  // que não foram geradas pelo módulo de investimentos (não têm 'Aporte:' no nome)
+  var fromTx = (state.transactions||[]).filter(function(t) {
+    return t.type === 'invest' && t.merchant && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
+  }).reduce(function(acc, t) { return acc + t.amount; }, 0);
+  return fromModule + fromTx;
 }
 
 function getInvestBalance(investId) {
@@ -3072,8 +3078,19 @@ function renderInvestments() {
   document.getElementById('invest-op-form').innerHTML =
     '<div style="font-size:13px;color:var(--text3);padding:12px 0">Selecione um investimento e clique em Aporte, Resgate ou Rendimento para registrar uma operação.</div>';
 
-  // History
-  var history = (state.investTxs || []).slice().sort(function(a,b){ return b.date.localeCompare(a.date); }).slice(0,20);
+  // History: combine investTxs + transactions type='invest' (avulsos)
+  var moduleHistory = (state.investTxs||[]).map(function(tx){
+    var inv = (state.investments||[]).find(function(i){return i.id===tx.investId;});
+    return {date:tx.date, label:inv?inv.name:'Investimento', op:tx.op, amount:tx.amount, notes:tx.notes||''};
+  });
+  var avulsoHistory = (state.transactions||[]).filter(function(t){
+    return t.type==='invest' && t.merchant.indexOf('Aporte:') === -1 && t.merchant.indexOf('Resgate:') === -1;
+  }).map(function(t){
+    return {date:t.date, label:t.merchant, op:'aporte', amount:t.amount, notes:t.notes||''};
+  });
+  var history = moduleHistory.concat(avulsoHistory)
+    .sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,30);
+
   if (history.length === 0) {
     document.getElementById('invest-history').innerHTML =
       '<div style="font-size:13px;color:var(--text3);padding:12px 0">Nenhuma operação registrada ainda.</div>';
@@ -3083,11 +3100,10 @@ function renderInvestments() {
     document.getElementById('invest-history').innerHTML =
       '<div style="display:flex;flex-direction:column;gap:8px">' +
       history.map(function(tx) {
-        var inv = (state.investments||[]).find(function(i){return i.id===tx.investId;});
         var color = opColors[tx.op] || 'var(--text2)';
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:8px">' +
           '<div>' +
-            '<div style="font-size:13px;font-weight:500">' + (inv?inv.name:'—') + '</div>' +
+            '<div style="font-size:13px;font-weight:500">' + tx.label + '</div>' +
             '<div style="font-size:11px;color:var(--text3)">' + new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') + ' · <span style="color:' + color + '">' + (opLabels[tx.op]||tx.op) + '</span>' + (tx.notes?' · '+tx.notes:'') + '</div>' +
           '</div>' +
           '<div style="font-family:DM Mono,monospace;font-size:13px;color:' + color + '">' + (tx.op==='resgate'?'- ':tx.op==='aporte'?'+ ':'~ ') + fmt(tx.amount) + '</div>' +
