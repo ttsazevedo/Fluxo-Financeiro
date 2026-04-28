@@ -1174,6 +1174,25 @@ function getCatSpend(catId, txs) {
   return txs.filter(t => t.categoryId === catId && t.type === 'expense').reduce((a, t) => a + t.amount, 0);
 }
 
+// Retorna quantos meses o período selecionado abrange
+function getPeriodMonths() {
+  var period = document.getElementById('period-filter') ? document.getElementById('period-filter').value : 'current';
+  if (period === 'current' || period === 'last') return 1;
+  if (period === '3m') return 3;
+  if (period === 'year') return new Date().getMonth() + 1;
+  if (period === 'all') {
+    var txs = state.transactions || [];
+    if (!txs.length) return 1;
+    var dates = txs.map(function(t){ return new Date(t.date); }).filter(function(d){ return !isNaN(d); });
+    if (!dates.length) return 1;
+    var minD = new Date(Math.min.apply(null, dates));
+    var maxD = new Date(Math.max.apply(null, dates));
+    var months = (maxD.getFullYear() - minD.getFullYear()) * 12 + (maxD.getMonth() - minD.getMonth()) + 1;
+    return Math.max(1, months);
+  }
+  return 1;
+}
+
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard() {
   const txs = getFilteredTxs();
