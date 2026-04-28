@@ -696,14 +696,21 @@
     <div class="page" id="page-import">
       <div class="card" style="margin-bottom:20px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="section-title" style="margin:0">📥 Importar Extrato Bancário</div>
+          <div class="section-title" style="margin:0">📥 Importar Extrato / Fatura</div>
           <div style="font-size:12px;color:var(--text3)">OFX · CSV · XML · PDF</div>
         </div>
         <div style="background:rgba(125,211,252,0.06);border:1px solid rgba(125,211,252,0.2);border-radius:10px;padding:14px;margin-bottom:16px;font-size:12.5px;color:var(--text2);line-height:1.7">
           <strong style="color:var(--accent2)">Como exportar do seu banco:</strong><br>
           🟠 <strong>Inter PF:</strong> App → Extrato → Exportar → OFX ou CSV<br>
-          🔵 <strong>C6 Bank:</strong> App → Extrato → Exportar PDF (usará IA)<br>
-          🟢 <strong>Santander:</strong> Internet Banking → Extrato → Exportar OFX
+          🔵 <strong>C6 Bank:</strong> App → Fatura → Exportar CSV (detalhado) ou PDF (usará IA)<br>
+          🟢 <strong>Santander:</strong> App → Fatura → Exportar PDF<br>
+          💳 <strong>Fatura de cartão:</strong> informe a data de vencimento abaixo para que os lançamentos usem como data de caixa
+        </div>
+        <!-- Due date for credit card -->
+        <div id="import-duedate-row" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding:12px 14px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:10px">
+          <span style="font-size:13px;color:#a78bfa;font-weight:600">💳 Vencimento da fatura:</span>
+          <input type="date" id="import-duedate" class="form-input" style="width:160px;font-size:13px;padding:6px 10px">
+          <span style="font-size:12px;color:var(--text3)">Deixe em branco para usar a data de cada lançamento como data de caixa</span>
         </div>
         <div class="upload-zone" id="import-upload-zone" onclick="document.getElementById('import-file-input').click()" style="margin-bottom:0">
           <div class="processing-overlay" id="import-processing-overlay">
@@ -711,7 +718,7 @@
             <div id="import-processing-msg" style="font-size:13px;color:var(--text2)">Processando arquivo…</div>
           </div>
           <div class="upload-icon">📂</div>
-          <div class="upload-title">Arraste ou clique para enviar o extrato</div>
+          <div class="upload-title">Arraste ou clique para enviar o extrato ou fatura</div>
           <div class="upload-sub">OFX, CSV, XML, PDF — qualquer banco brasileiro</div>
         </div>
         <input type="file" id="import-file-input" accept=".ofx,.csv,.xml,.pdf,.txt,.xls,.xlsx" onchange="handleImportUpload(event)" style="display:none">
@@ -734,7 +741,7 @@
           <table class="tx-table" id="import-preview-table">
             <thead><tr>
               <th style="width:36px"><input type="checkbox" id="import-check-all" onchange="selectAllImport(this.checked)" style="cursor:pointer"></th>
-              <th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th>
+              <th>Competência</th><th>Caixa</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th>
             </tr></thead>
             <tbody id="import-preview-tbody"></tbody>
           </table>
@@ -2619,6 +2626,8 @@ async function processImportFile(file) {
   try {
     var ext = file.name.split('.').pop().toLowerCase();
     var transactions = [];
+    var dueDateEl = document.getElementById('import-duedate');
+    var dueDate = dueDateEl ? dueDateEl.value : '';
 
     msgEl.textContent = 'Lendo arquivo…';
 
@@ -2668,6 +2677,9 @@ async function processImportFile(file) {
 
     // Categoriza automaticamente
     transactions = transactions.map(function(tx) {
+      // Se informou data de vencimento, usa como cashDate (data de caixa)
+      if (dueDate) tx.cashDate = dueDate;
+      else if (!tx.cashDate) tx.cashDate = tx.date;
       if (!tx.category_id) {
         var key = (tx.merchant || '').toLowerCase();
         tx.category_id = state.mappings[key] || autoCategory(tx.merchant, tx.type);
@@ -3070,10 +3082,13 @@ function showImportPreview(items, filename) {
   tbody.innerHTML = items.map(function(tx, i) {
     var cat = getCat(tx.category_id) || state.categories[0] || {name:'—',icon:'',color:'#888'};
     var rowStyle = tx._isDuplicate ? 'opacity:0.5' : '';
+    var dateComp = tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+    var dateCash = tx.cashDate && tx.cashDate !== tx.date ? new Date(tx.cashDate+'T12:00:00').toLocaleDateString('pt-BR') : '—';
     return '<tr style="' + rowStyle + '">' +
       '<td><input type="checkbox" class="import-row-check" data-idx="' + i + '" ' + (tx._selected?'checked':'') + ' onchange="toggleImportRow(' + i + ', this.checked)" style="cursor:pointer"></td>' +
-      '<td style="font-family:DM Mono,monospace;font-size:12px">' + (tx.date ? new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR') : '—') + '</td>' +
-      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (tx.merchant||'') + '">' + (tx.merchant||'—') + '</td>' +
+      '<td style="font-family:DM Mono,monospace;font-size:12px">' + dateComp + '</td>' +
+      '<td style="font-family:DM Mono,monospace;font-size:12px;color:' + (tx.cashDate && tx.cashDate !== tx.date ? '#a78bfa' : 'var(--text3)') + '">' + dateCash + '</td>' +
+      '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (tx.merchant||'') + '">' + (tx.merchant||'—') + '</td>' +
       '<td><select class="form-input" style="padding:3px 6px;font-size:11.5px;min-width:130px" onchange="changeImportCat(' + i + ', this.value)">' +
         state.categories.map(function(c) { return '<option value="' + c.id + '"' + (c.id===tx.category_id?' selected':'') + '>' + c.icon + ' ' + c.name + '</option>'; }).join('') +
       '</select></td>' +
