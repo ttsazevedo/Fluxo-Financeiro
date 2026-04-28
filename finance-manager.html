@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fluxo v4 — Gestão Financeira Inteligente</title>
+<title>Fluxo v19 — Gestão Financeira Inteligente</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -3089,7 +3089,7 @@ function renderInvestments() {
             '<div style="font-size:12.5px;font-weight:500">' + t.merchant + '</div>' +
             '<div style="font-size:11px;color:var(--text3)">' + new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR') + ' · ' + fmt(t.amount) + '</div>' +
           '</div>' +
-          '<button onclick="openClassifyInvest(\"' + t.id + '\")" style="font-size:11px;padding:5px 10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);border-radius:6px;cursor:pointer;color:#a78bfa;white-space:nowrap">Classificar →</button>' +
+          '<button data-txid="' + t.id + '" onclick="openClassifyInvest(this.dataset.txid)" style="font-size:11px;padding:5px 10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);border-radius:6px;cursor:pointer;color:#a78bfa;white-space:nowrap">Classificar →</button>' +
         '</div>';
       }).join('') +
       '</div></div>';
@@ -3150,7 +3150,7 @@ function openClassifyInvest(txId) {
       '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Vincular a investimento existente:</div>' +
       (invOptions ?
         '<div class="form-group" style="margin-bottom:14px"><select class="form-input" id="classify-existing" style="font-size:13px"><option value="">— Selecione —</option>' + invOptions + '</select></div>' +
-        '<button class="btn btn-accent" onclick="confirmClassifyExisting(\"' + txId + '\")" style="width:100%;justify-content:center;padding:9px;font-size:13px;margin-bottom:16px">Vincular ao selecionado</button>' :
+        '<button data-txid="' + txId + '" onclick="confirmClassifyExisting(this.dataset.txid)" style="width:100%;justify-content:center;padding:9px;font-size:13px;margin-bottom:16px">Vincular ao selecionado</button>' :
         '<div style="font-size:12px;color:var(--text3);margin-bottom:14px">Nenhum investimento cadastrado ainda.</div>') +
       '<div style="border-top:1px solid var(--border);padding-top:14px;font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text2)">Ou criar novo investimento:</div>' +
       '<div class="form-group"><label class="form-label">Nome do ativo</label>' +
@@ -3165,7 +3165,7 @@ function openClassifyInvest(txId) {
       '</div>' +
       '<div style="display:flex;gap:8px;margin-top:4px">' +
         '<button class="btn btn-ghost" onclick="renderInvestments()" style="flex:1;justify-content:center;padding:9px;font-size:13px">Cancelar</button>' +
-        '<button class="btn btn-accent" onclick="confirmClassifyNew(\"' + txId + '\")" style="flex:1;justify-content:center;padding:9px;font-size:13px">Criar e vincular</button>' +
+        '<button data-txid="' + txId + '" onclick="confirmClassifyNew(this.dataset.txid)" style="flex:1;justify-content:center;padding:9px;font-size:13px">Criar e vincular</button>' +
       '</div>' +
     '</div>';
 }
