@@ -2997,7 +2997,9 @@ async function parseCreditCardPDF(file) {
 
   try {
     var base64 = await fileToBase64Import(file);
-    var mimeType = file.type || 'application/pdf';
+    // Force correct mimeType for PDFs regardless of browser detection
+    var mimeType = file.type && file.type !== 'application/octet-stream' ? file.type : 'application/pdf';
+    if (file.name.toLowerCase().endsWith('.pdf')) mimeType = 'application/pdf';
     var token = getToken();
 
     var resp = await fetch(WORKER_BASE + '/scan', {
