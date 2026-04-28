@@ -1199,12 +1199,16 @@ function renderDashboard() {
   })).filter(x => x.spent > 0).sort((a,b) => b.spent - a.spent).slice(0, 6);
   const maxSpend = catSpends[0]?.spent || 1;
 
+  const periodMonths = getPeriodMonths();
   document.getElementById('cat-bar-chart').innerHTML = catSpends.length ? catSpends.map(x => {
     const pct = (x.spent / maxSpend * 100).toFixed(1);
-    const budgetText = x.cat.budget > 0 ? ` / ${fmt(x.cat.budget)}` : '';
-    const overBudget = x.cat.budget > 0 && x.spent > x.cat.budget;
+    const scaledBudget = x.cat.budget > 0 ? x.cat.budget * periodMonths : 0;
+    const budgetLabel = scaledBudget > 0
+      ? ` / ${fmt(scaledBudget)}${periodMonths > 1 ? ' <span style="font-size:10px;opacity:0.6">(×'+periodMonths+')</span>' : ''}`
+      : '';
+    const overBudget = scaledBudget > 0 && x.spent > scaledBudget;
     return `<div class="bar-row">
-      <div class="bar-label-row"><span class="bar-label">${x.cat.icon} ${x.cat.name}</span><span class="bar-amount" style="color:${overBudget?'var(--red)':'inherit'}">${fmt(x.spent)}${budgetText}</span></div>
+      <div class="bar-label-row"><span class="bar-label">${x.cat.icon} ${x.cat.name}</span><span class="bar-amount" style="color:${overBudget?'var(--red)':'inherit'}">${fmt(x.spent)}${budgetLabel}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${overBudget?'var(--red)':x.cat.color}"></div></div>
     </div>`;
   }).join('') : '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">Nenhuma despesa no período</div></div>';
@@ -1869,12 +1873,15 @@ function renderReportContent() {
 // ─── ALERTS ──────────────────────────────────────────────────────────────────
 function generateAlerts(txs) {
   const alerts = [];
+  const periodMonths = getPeriodMonths();
   state.categories.forEach(cat => {
     if (cat.budget <= 0) return;
+    const scaledBudget = cat.budget * periodMonths;
     const spent = getCatSpend(cat.id, txs);
-    const pct = spent / cat.budget;
-    if (pct > 1) alerts.push({ level:'danger', icon:'🚨', title:`Orçamento excedido: ${cat.name}`, body:`Você gastou ${fmt(spent)} de ${fmt(cat.budget)} (${(pct*100).toFixed(0)}%). Excesso de ${fmt(spent-cat.budget)}.` });
-    else if (pct > 0.85) alerts.push({ level:'warn', icon:'⚠️', title:`Atenção: ${cat.name} acima de 85%`, body:`${fmt(spent)} de ${fmt(cat.budget)} utilizados (${(pct*100).toFixed(0)}%). Restam apenas ${fmt(cat.budget-spent)}.` });
+    const pct = spent / scaledBudget;
+    const periodLabel = periodMonths > 1 ? ` (meta ×${periodMonths})` : '';
+    if (pct > 1) alerts.push({ level:'danger', icon:'🚨', title:`Orçamento excedido: ${cat.name}`, body:`Você gastou ${fmt(spent)} de ${fmt(scaledBudget)}${periodLabel} (${(pct*100).toFixed(0)}%). Excesso de ${fmt(spent-scaledBudget)}.` });
+    else if (pct > 0.85) alerts.push({ level:'warn', icon:'⚠️', title:`Atenção: ${cat.name} acima de 85%`, body:`${fmt(spent)} de ${fmt(scaledBudget)}${periodLabel} utilizados (${(pct*100).toFixed(0)}%). Restam ${fmt(scaledBudget-spent)}.` });
   });
   const expenses = txs.filter(t=>t.type==='expense').reduce((a,t)=>a+t.amount,0);
   const income = txs.filter(t=>t.type==='income').reduce((a,t)=>a+t.amount,0);
