@@ -1100,7 +1100,6 @@ async function loadFromServer() {
     state.mappings     = data.mappings     || {};
     renderDashboard();
     renderScan();
-    updateSidebarBalance();
     console.log('[Fluxo] Dados carregados:', state.transactions.length, 'transações,', (state.investments||[]).length, 'investimentos');
   } catch(e) {
     console.error('[Fluxo] Erro ao carregar dados:', e);
