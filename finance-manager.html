@@ -782,7 +782,7 @@
       <div class="card">
         <table class="tx-table">
           <thead><tr>
-            <th>Data</th><th>Estabelecimento</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Fluxo</th><th></th>
+            <th>Data</th><th>Estabelecimento</th><th>Categoria</th><th>Tipo</th><th>Origem</th><th>Valor</th><th>Fluxo</th><th></th>
           </tr></thead>
           <tbody id="tx-tbody"></tbody>
         </table>
@@ -1354,7 +1354,7 @@ function saveManualTx() {
     if (!state.investTxs) state.investTxs = [];
     state.investTxs.push({ id: 'itx_'+Date.now(), investId: 'manual', op: 'aporte', amount, date, notes });
   }
-  const tx = { id: 'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: manualType, notes, createdAt: new Date().toISOString() };
+  const tx = { id: 'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: manualType, notes, createdAt: new Date().toISOString(), source: 'manual', cardLast4: null };
   state.transactions.push(tx);
   // Auto-map
   if (!state.mappings[merchant.toLowerCase()]) state.mappings[merchant.toLowerCase()] = categoryId;
@@ -1633,7 +1633,9 @@ function confirmAllScans() {
       categoryId: data.category_id || state.categories[0]?.id,
       type: data.type || 'expense',
       notes: data.notes || '',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      source: 'scan',
+      cardLast4: null
     });
     // Atualiza mapeamento com categoria final escolhida
     if (data.merchant && data.category_id) {
@@ -1662,7 +1664,9 @@ function confirmScan() {
     categoryId: data.category_id,
     type: data.type || 'expense',
     notes: data.notes || '',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    source: 'scan',
+    cardLast4: null
   };
   // Atualiza mapeamento com categoria final
   if (data.merchant && data.category_id) {
@@ -1710,11 +1714,17 @@ function renderTransactions() {
     const cat = getCat(tx.categoryId);
     const typeLabel = tx.type==='expense'?'💸 Despesa':tx.type==='income'?'💰 Receita':'📈 Investimento';
     const typeColor = tx.type==='expense'?'var(--red)':tx.type==='income'?'var(--green)':'#a78bfa';
+    const srcLabels = {manual:'✍️ Manual', extrato:'📄 Extrato', fatura:'💳 Fatura', scan:'📷 Scan'};
+    const srcColors = {manual:'var(--text3)', extrato:'#38bdf8', fatura:'#a78bfa', scan:'#34d399'};
+    const srcLabel = srcLabels[tx.source||'manual'] || '✍️ Manual';
+    const srcColor = srcColors[tx.source||'manual'] || 'var(--text3)';
+    const cardBadge = tx.cardLast4 ? ` <span style="font-size:10px;opacity:.7">····${tx.cardLast4}</span>` : '';
     return `<tr>
       <td style="font-family:DM Mono,monospace;font-size:12px;color:var(--text3)">${new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR')}</td>
       <td style="font-weight:500">${tx.merchant}</td>
       <td>${cat?`<span class="cat-pill" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`:''}</td>
       <td style="font-size:12px;color:${typeColor}">${typeLabel}</td>
+      <td style="font-size:11px;color:${srcColor}">${srcLabel}${cardBadge}</td>
       <td class="${tx.type==='expense'?'amount-neg':tx.type==='invest'?'':'amount-pos'}" style="${tx.type==='invest'?'color:#a78bfa':''}">
         ${tx.type==='expense'?'−':tx.type==='invest'?'📈':'+'}  ${fmt(tx.amount)}
       </td>
@@ -1805,7 +1815,7 @@ function saveEditTx() {
   if (idx === -1) { showNotif('Transação não encontrada', 'error'); return; }
 
   state.transactions[idx] = Object.assign({}, state.transactions[idx], {
-    merchant: merchant, amount: amount, date: date, cashDate: cashDate,
+    merchant: merchant, amount: amount, date: date, cashDate: cashDate, source: existingTx ? (existingTx.source||'manual') : 'manual', cardLast4: existingTx ? (existingTx.cardLast4||null) : null,
     categoryId: catId, type: type, notes: notes
   });
 
@@ -2079,7 +2089,7 @@ function saveTx() {
   const categoryId = document.getElementById('tx-category').value;
   const notes = document.getElementById('tx-notes').value;
   if (!merchant || !amount || !date) { showNotif('Preencha os campos obrigatórios', 'error'); return; }
-  state.transactions.push({ id:'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: state.currentTxType, notes, createdAt: new Date().toISOString() });
+  state.transactions.push({ id:'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: state.currentTxType, notes, createdAt: new Date().toISOString(), source: 'manual', cardLast4: null });
   if (!state.mappings[merchant.toLowerCase()]) state.mappings[merchant.toLowerCase()] = categoryId;
   saveState(); closeTxModal(); updateAll();
   showNotif('Lançamento salvo!', 'success');
@@ -2541,16 +2551,10 @@ async function renderInvitePanel() {
                   Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
                 </div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center">
-                <button onclick="copyInviteLinkByToken('${inv.token}')"
-                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(200,240,77,0.3);border-radius:6px;cursor:pointer;color:var(--accent2)">
-                  📋 Copiar link
-                </button>
-                <button onclick="revokeInvite('${inv.token}')"
-                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
-                  Revogar
-                </button>
-              </div>
+              <button onclick="revokeInvite('${inv.token}')"
+                style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+                Revogar
+              </button>
             </div>
           </div>`).join('')}
       </div>` : '<div style="font-size:12.5px;color:var(--text3)">Nenhum convite ativo</div>'}
@@ -2584,16 +2588,6 @@ function copyInviteLink() {
     showNotif('Link copiado!', 'success');
   }).catch(() => {
     prompt('Copie o link abaixo:', lastInviteLink);
-  });
-}
-
-function copyInviteLinkByToken(token) {
-  var base = 'https://ttsazevedo.github.io/Fluxo-Financeiro/finance-manager.html';
-  var link = base + '?invite=' + token;
-  navigator.clipboard.writeText(link).then(() => {
-    showNotif('Link copiado!', 'success');
-  }).catch(() => {
-    prompt('Copie o link abaixo:', link);
   });
 }
 
@@ -2900,7 +2894,7 @@ function parseCSV(text) {
       }
       amt = Math.abs(amt);
     } else continue;
-    txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '' });
+    txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '', _source: 'extrato' });
   }
   return txs;
 }
@@ -2978,7 +2972,9 @@ function parseCreditCardCSV(text) {
     if (parcela && parcela !== 'Única' && parcela !== 'Única') notes = 'Parcela ' + parcela;
     if (cat && cat !== '-') notes = (notes ? notes + ' · ' : '') + cat;
 
-    txs.push({ merchant: desc, amount: amt, date: date, type: 'expense', notes: notes, category_id: '' });
+    var cardRaw = colCard >= 0 ? (cols[colCard] || '').replace(/"/g,'').trim() : '';
+    var c4 = cardRaw ? cardRaw.replace(/\D/g,'').slice(-4) : null;
+    txs.push({ merchant: desc, amount: amt, date: date, type: 'expense', notes: notes, category_id: '', _source: 'fatura', _cardLast4: c4 });
   }
   return txs;
 }
@@ -3058,7 +3054,9 @@ async function parseCreditCardPDF(file) {
           type       : 'expense',
           notes      : String(t.notes || '').trim(),
           category_id: t.category_id || '',
-          cashDate   : ''
+          cashDate   : '',
+          _source    : 'fatura',
+          _cardLast4 : t.card_last4 ? String(t.card_last4).slice(-4) : null
         };
       })
       .filter(function(t){ return t.merchant && t.amount > 0 && t.date; });
@@ -3201,17 +3199,70 @@ function confirmImport() {
   var selected = importPendingItems.filter(function(t){return t._selected;});
   if (selected.length === 0) { showNotif('Nenhuma transação selecionada', 'error'); return; }
 
+  // Se for fatura e nenhuma transação tem cardLast4, pergunta o cartão
+  var isFatura = selected.some(function(t){ return t._source === 'fatura'; });
+  var hasCard  = selected.some(function(t){ return t._cardLast4; });
+  if (isFatura && !hasCard) {
+    _pendingImportCallback = function(cardLast4) {
+      selected.forEach(function(t){ if (t._source === 'fatura') t._cardLast4 = cardLast4 || null; });
+      _doConfirmImport(selected, today);
+    };
+    showCardModal();
+    return;
+  }
+  _doConfirmImport(selected, today);
+}
+
+var _pendingImportCallback = null;
+
+function showCardModal() {
+  var overlay = document.getElementById('user-panel-overlay');
+  var modal = document.createElement('div');
+  modal.id = 'card-modal';
+  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:24px;z-index:9999;width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5)';
+  modal.innerHTML = \`
+    <div style="font-size:15px;font-weight:600;margin-bottom:6px">💳 Qual cartão usou?</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Informe os 4 últimos dígitos do cartão desta fatura (opcional)</div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Últimos 4 dígitos</label>
+      <input type="text" id="card-modal-input" class="form-input" placeholder="ex: 1234" maxlength="4" pattern="[0-9]*" inputmode="numeric" style="letter-spacing:4px;font-family:DM Mono,monospace;font-size:18px;text-align:center">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeCardModal(null)">Pular</button>
+      <button class="btn btn-accent" style="flex:1" onclick="closeCardModal(document.getElementById('card-modal-input').value.trim())">Confirmar</button>
+    </div>
+  \`;
+  document.body.appendChild(modal);
+  if (overlay) overlay.classList.add('show');
+  setTimeout(function(){ var el = document.getElementById('card-modal-input'); if(el) el.focus(); }, 100);
+}
+
+function closeCardModal(cardLast4) {
+  var modal = document.getElementById('card-modal');
+  if (modal) modal.remove();
+  var overlay = document.getElementById('user-panel-overlay');
+  if (overlay) overlay.classList.remove('show');
+  if (_pendingImportCallback) {
+    _pendingImportCallback(cardLast4 || null);
+    _pendingImportCallback = null;
+  }
+}
+
+function _doConfirmImport(selected, today) {
+
   selected.forEach(function(tx) {
     var id = 'tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
     state.transactions.push({
       id, merchant : tx.merchant || 'Importado',
       amount    : parseFloat(tx.amount) || 0,
       date      : tx.date || today,
-      cashDate  : tx.date || today,
+      cashDate  : tx.cashDate || tx.date || today,
       categoryId: tx.category_id || (state.categories[0]&&state.categories[0].id) || '',
       type      : tx.type || 'expense',
       notes     : tx.notes || 'Importado via extrato',
       createdAt : new Date().toISOString(),
+      source    : tx._source || 'extrato',
+      cardLast4 : tx._cardLast4 || null,
     });
     if (tx.merchant && tx.category_id) {
       state.mappings[(tx.merchant).toLowerCase()] = tx.category_id;
