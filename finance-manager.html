@@ -2541,10 +2541,16 @@ async function renderInvitePanel() {
                   Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
                 </div>
               </div>
-              <button onclick="revokeInvite('${inv.token}')"
-                style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
-                Revogar
-              </button>
+              <div style="display:flex;gap:6px;align-items:center">
+                <button onclick="copyInviteLinkByToken('${inv.token}')"
+                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(200,240,77,0.3);border-radius:6px;cursor:pointer;color:var(--accent2)">
+                  📋 Copiar link
+                </button>
+                <button onclick="revokeInvite('${inv.token}')"
+                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+                  Revogar
+                </button>
+              </div>
             </div>
           </div>`).join('')}
       </div>` : '<div style="font-size:12.5px;color:var(--text3)">Nenhum convite ativo</div>'}
@@ -2578,6 +2584,16 @@ function copyInviteLink() {
     showNotif('Link copiado!', 'success');
   }).catch(() => {
     prompt('Copie o link abaixo:', lastInviteLink);
+  });
+}
+
+function copyInviteLinkByToken(token) {
+  var base = 'https://ttsazevedo.github.io/Fluxo-Financeiro/finance-manager.html';
+  var link = base + '?invite=' + token;
+  navigator.clipboard.writeText(link).then(() => {
+    showNotif('Link copiado!', 'success');
+  }).catch(() => {
+    prompt('Copie o link abaixo:', link);
   });
 }
 
