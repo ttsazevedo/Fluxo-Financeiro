@@ -3241,7 +3241,7 @@ function showCardModal() {
     + '<input type="text" id="card-modal-input" class="form-input" placeholder="ex: 1234" maxlength="4" inputmode="numeric" style="letter-spacing:4px;font-family:DM Mono,monospace;font-size:18px;text-align:center"></div>'
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-ghost" style="flex:1" onclick="closeCardModal(null)">Pular</button>'
-    + '<button class="btn btn-accent" style="flex:1" onclick="closeCardModal(document.getElementById('card-modal-input').value.trim())">Confirmar</button>'
+    + '<button class="btn btn-accent" style="flex:1" onclick="closeCardModal(document.getElementById(&quot;card-modal-input&quot;).value.trim())">Confirmar</button>'
     + '</div>';
   document.body.appendChild(modal);
   setTimeout(function(){ var el = document.getElementById('card-modal-input'); if(el) el.focus(); }, 100);
