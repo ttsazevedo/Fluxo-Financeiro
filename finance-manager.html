@@ -1333,9 +1333,9 @@ function renderDashboard() {
     </div>
   `).join('') || '<div style="color:var(--green);font-size:13px;padding:8px">✅ Tudo dentro do orçamento!</div>';
 
-  // Gráfico de linha temporal
+  // Gráfico de linha temporal — aguarda DOM ter largura real
   populateTimelineFilters();
-  renderTimeline();
+  requestAnimationFrame(function() { renderTimeline(); });
 }
 
 function renderDonut(catSpends, total) {
@@ -3693,17 +3693,20 @@ function populateTimelineFilters() {
 
 // Bucketing de datas
 function getDateBucket(dateStr, gran) {
-  var d = new Date(dateStr + 'T12:00:00');
-  if (gran === 'day')   return dateStr.slice(0, 10);
+  var s = (dateStr || '').slice(0, 10);
+  var parts = s.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  if (gran === 'day') return s;
   if (gran === 'week') {
-    // Início da semana (segunda-feira)
-    var day = d.getDay(); // 0=dom
+    var day  = d.getDay(); // 0=dom
     var diff = (day === 0) ? -6 : 1 - day;
-    var mon = new Date(d); mon.setDate(d.getDate() + diff);
-    return mon.toISOString().slice(0, 10);
+    var mon  = new Date(d); mon.setDate(d.getDate() + diff);
+    return mon.getFullYear() + '-' +
+           String(mon.getMonth() + 1).padStart(2, '0') + '-' +
+           String(mon.getDate()).padStart(2, '0');
   }
-  if (gran === 'month') return dateStr.slice(0, 7);
-  return dateStr.slice(0, 7);
+  // month
+  return parts[0] + '-' + parts[1];
 }
 
 function formatBucketLabel(bucket, gran) {
@@ -3727,6 +3730,13 @@ function renderTimeline() {
   var emptyEl  = document.getElementById('timeline-empty');
   if (!svg || !wrap) return;
 
+  // Garante largura real — adia se o elemento ainda não foi renderizado
+  var W = wrap.offsetWidth || wrap.clientWidth;
+  if (W < 100) {
+    setTimeout(renderTimeline, 80);
+    return;
+  }
+
   // Filtros ativos
   var bankFilter   = (document.getElementById('tl-filter-bank')     || {}).value || '';
   var cardFilter   = (document.getElementById('tl-filter-card')     || {}).value || '';
@@ -3736,8 +3746,27 @@ function renderTimeline() {
   var showInvest   = document.getElementById('tl-show-invest')  ? document.getElementById('tl-show-invest').checked  : true;
   var showBalance  = document.getElementById('tl-show-balance') ? document.getElementById('tl-show-balance').checked : false;
 
-  // Aplica período global
-  var allTxs = getFilteredTxs();
+  // Usa TODAS as transações e filtra por período manualmente (evita bug de timezone)
+  var period = (document.getElementById('period-filter') || {}).value || 'current';
+  var now    = new Date();
+  var allTxs = (state.transactions || []).filter(function(tx) {
+    // Parse seguro: sempre noon UTC para evitar off-by-one de timezone
+    var dateStr = (tx.date || '').slice(0, 10);
+    if (!dateStr) return false;
+    var parts = dateStr.split('-');
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    if (period === 'current') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (period === 'last') {
+      var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+    }
+    if (period === '3m') {
+      var from = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      return d >= from;
+    }
+    if (period === 'year') return d.getFullYear() === now.getFullYear();
+    return true; // 'all'
+  });
 
   // Aplica filtros específicos do gráfico
   var txs = allTxs.filter(function(t) {
@@ -3751,6 +3780,7 @@ function renderTimeline() {
   });
 
   if (!txs.length) {
+    svg.innerHTML = '';
     svg.style.display = 'none';
     emptyEl.style.display = 'block';
     return;
