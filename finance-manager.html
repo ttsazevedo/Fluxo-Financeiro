@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fluxo v19 — Gestão Financeira Inteligente</title>
+<title>Fluxo v26 — Gestão Financeira Inteligente</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -782,7 +782,7 @@
       <div class="card">
         <table class="tx-table">
           <thead><tr>
-            <th>Data</th><th>Estabelecimento</th><th>Categoria</th><th>Tipo</th><th>Origem</th><th>Valor</th><th>Fluxo</th><th></th>
+            <th>Data</th><th>Estabelecimento</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Fluxo</th><th></th>
           </tr></thead>
           <tbody id="tx-tbody"></tbody>
         </table>
@@ -1000,6 +1000,33 @@
       Entrar
     </button>
     <div id="login-error" style="color:var(--red);font-size:12.5px;margin-top:12px;min-height:18px"></div>
+    <div style="text-align:center;margin-top:14px">
+      <button onclick="showForgotPassword()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:12.5px;text-decoration:underline;padding:0">
+        Esqueci minha senha
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL -->
+<div class="modal-bg" id="forgot-pwd-modal">
+  <div class="modal" style="max-width:400px;text-align:center">
+    <div class="modal-title">🔑 Recuperar Senha</div>
+    <div id="forgot-pwd-content">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">
+        Informe o e-mail cadastrado. Enviaremos um link para você redefinir sua senha.
+      </p>
+      <div class="form-group" style="text-align:left">
+        <label class="form-label">E-mail</label>
+        <input type="email" class="form-input" id="forgot-pwd-email" placeholder="seu@email.com"
+          onkeydown="if(event.key==='Enter')submitForgotPassword()">
+      </div>
+      <div id="forgot-pwd-error" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left"></div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn btn-ghost" onclick="closeForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>
+        <button class="btn btn-accent" onclick="submitForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Enviar link →</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1200,13 +1227,48 @@ function getPeriodMonths() {
   return 1;
 }
 
+// ─── SALDO FLUIDO: calcula saldo acumulado até o início do período ────────────
+function getOpeningBalance() {
+  const period = document.getElementById('period-filter')?.value || 'current';
+  // Para "todos os lançamentos" não há saldo inicial anterior
+  if (period === 'all') return 0;
+
+  const now = new Date();
+  let cutoff; // data de corte: transações ANTES desta data formam o saldo inicial
+
+  if (period === 'current') {
+    cutoff = new Date(now.getFullYear(), now.getMonth(), 1); // 1º do mês atual
+  } else if (period === 'last') {
+    cutoff = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1º do mês anterior
+  } else if (period === '3m') {
+    cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1); // 3 meses atrás
+  } else if (period === 'year') {
+    cutoff = new Date(now.getFullYear(), 0, 1); // 1º de janeiro do ano atual
+  } else {
+    return 0;
+  }
+
+  // Soma todas as transações anteriores ao corte
+  return (state.transactions || []).reduce((acc, tx) => {
+    const d = new Date((tx.date || '') + 'T12:00:00');
+    if (d < cutoff) {
+      if (tx.type === 'income')   return acc + tx.amount;
+      if (tx.type === 'expense')  return acc - tx.amount;
+      if (tx.type === 'invest')   return acc - tx.amount;
+    }
+    return acc;
+  }, 0);
+}
+
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard() {
   const txs = getFilteredTxs();
   const expenses = txs.filter(t => t.type === 'expense').reduce((a,t) => a+t.amount, 0);
   const invested  = txs.filter(t => t.type === 'invest').reduce((a,t) => a+t.amount, 0);
   const income = txs.filter(t => t.type === 'income').reduce((a,t) => a+t.amount, 0);
-  const balance = income - expenses - invested;
+  const openingBalance = getOpeningBalance();          // ← saldo inicial herdado
+  const periodResult   = income - expenses - invested; // ← resultado do período
+  const balance        = openingBalance + periodResult; // ← saldo final fluido
   const txCount = txs.length;
 
   document.getElementById('sidebar-balance').textContent = fmt(balance);
@@ -1215,7 +1277,7 @@ function renderDashboard() {
   document.getElementById('kpi-grid').innerHTML = `
     <div class="kpi-card green"><div class="kpi-label">Receitas</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='income').length} lançamentos</div><div class="kpi-icon">💰</div></div>
     <div class="kpi-card red"><div class="kpi-label">Despesas</div><div class="kpi-value" style="color:var(--red)">${fmt(expenses)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='expense').length} lançamentos</div><div class="kpi-icon">💸</div></div>
-    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${balance>=0?'Positivo':'Negativo'}</div><div class="kpi-icon">⚖️</div></div>
+    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${openingBalance !== 0 ? 'Início: ' + (openingBalance>=0?'':'−') + fmt(openingBalance) + ' · ' : ''}${periodResult>=0?'+ ':'− '}${fmt(Math.abs(periodResult))} no período</div><div class="kpi-icon">⚖️</div></div>
     <div class="kpi-card purple"><div class="kpi-label">Patrimônio Investido</div><div class="kpi-value" style="color:#a78bfa">${fmt(getPatrimonio())}</div><div class="kpi-delta">${(state.investments||[]).length} investimento(s)</div><div class="kpi-icon">📈</div></div>
   `;
 
@@ -1354,7 +1416,7 @@ function saveManualTx() {
     if (!state.investTxs) state.investTxs = [];
     state.investTxs.push({ id: 'itx_'+Date.now(), investId: 'manual', op: 'aporte', amount, date, notes });
   }
-  const tx = { id: 'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: manualType, notes, createdAt: new Date().toISOString(), source: 'manual', cardLast4: null };
+  const tx = { id: 'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: manualType, notes, createdAt: new Date().toISOString() };
   state.transactions.push(tx);
   // Auto-map
   if (!state.mappings[merchant.toLowerCase()]) state.mappings[merchant.toLowerCase()] = categoryId;
@@ -1633,9 +1695,7 @@ function confirmAllScans() {
       categoryId: data.category_id || state.categories[0]?.id,
       type: data.type || 'expense',
       notes: data.notes || '',
-      createdAt: new Date().toISOString(),
-      source: 'scan',
-      cardLast4: null
+      createdAt: new Date().toISOString()
     });
     // Atualiza mapeamento com categoria final escolhida
     if (data.merchant && data.category_id) {
@@ -1664,9 +1724,7 @@ function confirmScan() {
     categoryId: data.category_id,
     type: data.type || 'expense',
     notes: data.notes || '',
-    createdAt: new Date().toISOString(),
-    source: 'scan',
-    cardLast4: null
+    createdAt: new Date().toISOString()
   };
   // Atualiza mapeamento com categoria final
   if (data.merchant && data.category_id) {
@@ -1714,17 +1772,11 @@ function renderTransactions() {
     const cat = getCat(tx.categoryId);
     const typeLabel = tx.type==='expense'?'💸 Despesa':tx.type==='income'?'💰 Receita':'📈 Investimento';
     const typeColor = tx.type==='expense'?'var(--red)':tx.type==='income'?'var(--green)':'#a78bfa';
-    const srcMap = {manual:'✍️ Manual', extrato:'📄 Extrato', fatura:'💳 Fatura', scan:'📷 Scan'};
-    const srcClr = {manual:'var(--text3)', extrato:'#38bdf8', fatura:'#a78bfa', scan:'#34d399'};
-    const srcLabel = srcMap[tx.source||'manual'] || '✍️ Manual';
-    const srcColor = srcClr[tx.source||'manual'] || 'var(--text3)';
-    const cardBadge = tx.cardLast4 ? ' ····'+tx.cardLast4 : '';
     return `<tr>
       <td style="font-family:DM Mono,monospace;font-size:12px;color:var(--text3)">${new Date(tx.date+'T12:00:00').toLocaleDateString('pt-BR')}</td>
       <td style="font-weight:500">${tx.merchant}</td>
       <td>${cat?`<span class="cat-pill" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span>`:''}</td>
       <td style="font-size:12px;color:${typeColor}">${typeLabel}</td>
-      <td style="font-size:11px;color:${srcColor}">${srcLabel}${cardBadge}</td>
       <td class="${tx.type==='expense'?'amount-neg':tx.type==='invest'?'':'amount-pos'}" style="${tx.type==='invest'?'color:#a78bfa':''}">
         ${tx.type==='expense'?'−':tx.type==='invest'?'📈':'+'}  ${fmt(tx.amount)}
       </td>
@@ -1815,7 +1867,7 @@ function saveEditTx() {
   if (idx === -1) { showNotif('Transação não encontrada', 'error'); return; }
 
   state.transactions[idx] = Object.assign({}, state.transactions[idx], {
-    merchant: merchant, amount: amount, date: date, cashDate: cashDate, source: existingTx ? (existingTx.source||'manual') : 'manual', cardLast4: existingTx ? (existingTx.cardLast4||null) : null,
+    merchant: merchant, amount: amount, date: date, cashDate: cashDate,
     categoryId: catId, type: type, notes: notes
   });
 
@@ -1853,20 +1905,40 @@ function renderReportContent() {
       byMonth[key][tx.type] += tx.amount;
     });
     const months = Object.entries(byMonth).sort((a,b)=>a[0].localeCompare(b[0]));
+
+    // Calcula saldo acumulado antes do primeiro mês exibido
+    // usando TODAS as transações anteriores ao primeiro mês do filtro
+    let runningBalance = 0;
+    if (months.length > 0) {
+      const [firstY, firstMo] = months[0][0].split('-');
+      const cutoff = new Date(parseInt(firstY), parseInt(firstMo) - 1, 1);
+      runningBalance = (state.transactions || []).reduce((acc, tx) => {
+        const d = new Date((tx.date || '') + 'T12:00:00');
+        if (d < cutoff) {
+          if (tx.type === 'income')  return acc + tx.amount;
+          if (tx.type === 'expense') return acc - tx.amount;
+          if (tx.type === 'invest')  return acc - tx.amount;
+        }
+        return acc;
+      }, 0);
+    }
+
     document.getElementById('report-content').innerHTML = `
       <div class="card">
         <div class="section-title">Resumo por Mês</div>
         <table class="tx-table">
-          <thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Saldo</th></tr></thead>
+          <thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Resultado</th><th>Saldo Acumulado</th></tr></thead>
           <tbody>${months.map(([m, v]) => {
             const [y,mo] = m.split('-');
             const label = new Date(y, mo-1, 1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-            const bal = v.income - v.expense;
+            const result = v.income - v.expense;
+            runningBalance += result;
             return `<tr>
               <td style="font-weight:500">${label}</td>
               <td class="amount-pos">+ ${fmt(v.income)}</td>
               <td class="amount-neg">− ${fmt(v.expense)}</td>
-              <td class="${bal>=0?'amount-pos':'amount-neg'}">${bal>=0?'+ ':'− '}${fmt(bal)}</td>
+              <td class="${result>=0?'amount-pos':'amount-neg'}">${result>=0?'+ ':'− '}${fmt(Math.abs(result))}</td>
+              <td class="${runningBalance>=0?'amount-pos':'amount-neg'}" style="font-weight:600">${runningBalance>=0?'+ ':'− '}${fmt(Math.abs(runningBalance))}</td>
             </tr>`;
           }).join('')}</tbody>
         </table>
@@ -2089,7 +2161,7 @@ function saveTx() {
   const categoryId = document.getElementById('tx-category').value;
   const notes = document.getElementById('tx-notes').value;
   if (!merchant || !amount || !date) { showNotif('Preencha os campos obrigatórios', 'error'); return; }
-  state.transactions.push({ id:'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: state.currentTxType, notes, createdAt: new Date().toISOString(), source: 'manual', cardLast4: null });
+  state.transactions.push({ id:'tx_'+Date.now(), merchant, amount, date, cashDate, categoryId, type: state.currentTxType, notes, createdAt: new Date().toISOString() });
   if (!state.mappings[merchant.toLowerCase()]) state.mappings[merchant.toLowerCase()] = categoryId;
   saveState(); closeTxModal(); updateAll();
   showNotif('Lançamento salvo!', 'success');
@@ -2210,6 +2282,68 @@ function logout() {
   currentUser = null;
   closeUserPanel();
   showLoginScreen();
+}
+
+// ── RECUPERAÇÃO DE SENHA ──────────────────────────────────────────────────────
+function showForgotPassword() {
+  document.getElementById('forgot-pwd-email').value = '';
+  document.getElementById('forgot-pwd-error').textContent = '';
+  document.getElementById('forgot-pwd-content').innerHTML = document.getElementById('forgot-pwd-content').innerHTML; // reset
+  // Restaura conteúdo caso tenha sido substituído pelo sucesso
+  document.getElementById('forgot-pwd-content').innerHTML = `
+    <p style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">
+      Informe o e-mail cadastrado. Enviaremos um link para você redefinir sua senha.
+    </p>
+    <div class="form-group" style="text-align:left">
+      <label class="form-label">E-mail</label>
+      <input type="email" class="form-input" id="forgot-pwd-email" placeholder="seu@email.com"
+        onkeydown="if(event.key==='Enter')submitForgotPassword()">
+    </div>
+    <div id="forgot-pwd-error" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left"></div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn btn-ghost" onclick="closeForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>
+      <button class="btn btn-accent" onclick="submitForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Enviar link →</button>
+    </div>
+  `;
+  document.getElementById('forgot-pwd-modal').classList.add('show');
+  setTimeout(() => document.getElementById('forgot-pwd-email') && document.getElementById('forgot-pwd-email').focus(), 100);
+}
+
+function closeForgotPassword() {
+  document.getElementById('forgot-pwd-modal').classList.remove('show');
+}
+
+async function submitForgotPassword() {
+  var email = document.getElementById('forgot-pwd-email') ? document.getElementById('forgot-pwd-email').value.trim() : '';
+  var errEl = document.getElementById('forgot-pwd-error');
+  if (errEl) errEl.textContent = '';
+  if (!email) { if (errEl) errEl.textContent = 'Informe um e-mail válido'; return; }
+
+  var btn = document.querySelector('#forgot-pwd-content .btn-accent');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+
+  try {
+    var r = await fetch(WORKER_BASE + '/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    // Sempre mostra mensagem de sucesso (não revela se e-mail existe)
+    document.getElementById('forgot-pwd-content').innerHTML = `
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:36px;margin-bottom:12px">✉️</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Link enviado!</div>
+        <p style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">
+          Se o e-mail <strong>${email}</strong> estiver cadastrado, você receberá um link de redefinição de senha em alguns minutos.<br><br>
+          Verifique também a caixa de spam.
+        </p>
+        <button class="btn btn-accent" onclick="closeForgotPassword()" style="width:100%;justify-content:center;padding:10px;font-size:13px">Fechar</button>
+      </div>
+    `;
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar link →'; }
+    if (errEl) errEl.textContent = 'Erro de conexão. Tente novamente.';
+  }
 }
 
 // ── ROLE HELPERS ──────────────────────────────────────────────────────────────
@@ -2551,16 +2685,10 @@ async function renderInvitePanel() {
                   Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
                 </div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center">
-                <button onclick="copyInviteLinkByToken('${inv.token}')"
-                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(200,240,77,0.3);border-radius:6px;cursor:pointer;color:var(--accent2)">
-                  📋 Copiar link
-                </button>
-                <button onclick="revokeInvite('${inv.token}')"
-                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
-                  Revogar
-                </button>
-              </div>
+              <button onclick="revokeInvite('${inv.token}')"
+                style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+                Revogar
+              </button>
             </div>
           </div>`).join('')}
       </div>` : '<div style="font-size:12.5px;color:var(--text3)">Nenhum convite ativo</div>'}
@@ -2594,16 +2722,6 @@ function copyInviteLink() {
     showNotif('Link copiado!', 'success');
   }).catch(() => {
     prompt('Copie o link abaixo:', lastInviteLink);
-  });
-}
-
-function copyInviteLinkByToken(token) {
-  var base = 'https://ttsazevedo.github.io/Fluxo-Financeiro/finance-manager.html';
-  var link = base + '?invite=' + token;
-  navigator.clipboard.writeText(link).then(() => {
-    showNotif('Link copiado!', 'success');
-  }).catch(() => {
-    prompt('Copie o link abaixo:', link);
   });
 }
 
@@ -2910,7 +3028,7 @@ function parseCSV(text) {
       }
       amt = Math.abs(amt);
     } else continue;
-    txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '', _source: 'extrato' });
+    txs.push({ merchant: desc, amount: amt, date: date, type: type, notes: '', category_id: '' });
   }
   return txs;
 }
@@ -2988,9 +3106,7 @@ function parseCreditCardCSV(text) {
     if (parcela && parcela !== 'Única' && parcela !== 'Única') notes = 'Parcela ' + parcela;
     if (cat && cat !== '-') notes = (notes ? notes + ' · ' : '') + cat;
 
-    var cardRaw = colCard >= 0 ? (cols[colCard] || '').replace(/"/g,'').trim() : '';
-    var c4 = cardRaw ? cardRaw.replace(/\D/g,'').slice(-4) : null;
-    txs.push({ merchant: desc, amount: amt, date: date, type: 'expense', notes: notes, category_id: '', _source: 'fatura', _cardLast4: c4 });
+    txs.push({ merchant: desc, amount: amt, date: date, type: 'expense', notes: notes, category_id: '' });
   }
   return txs;
 }
@@ -3070,9 +3186,7 @@ async function parseCreditCardPDF(file) {
           type       : 'expense',
           notes      : String(t.notes || '').trim(),
           category_id: t.category_id || '',
-          cashDate   : '',
-          _source    : 'fatura',
-          _cardLast4 : t.card_last4 ? String(t.card_last4).slice(-4) : null
+          cashDate   : ''
         };
       })
       .filter(function(t){ return t.merchant && t.amount > 0 && t.date; });
@@ -3210,66 +3324,22 @@ function updateImportSummary() {
   if (el) el.textContent = importPendingItems.length + ' transações encontradas · ' + total + ' selecionadas · R$ ' + sumVal.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' em despesas';
 }
 
-var _pendingImportCallback = null;
-
 function confirmImport() {
   var today = new Date().toISOString().split('T')[0];
   var selected = importPendingItems.filter(function(t){return t._selected;});
   if (selected.length === 0) { showNotif('Nenhuma transação selecionada', 'error'); return; }
 
-  // Se for fatura e nenhuma tem cardLast4, pergunta o cartão
-  var isFatura = selected.some(function(t){ return t._source === 'fatura'; });
-  var hasCard  = selected.some(function(t){ return t._cardLast4; });
-  if (isFatura && !hasCard) {
-    _pendingImportCallback = function(cardLast4) {
-      selected.forEach(function(t){ if (t._source === 'fatura') t._cardLast4 = cardLast4 || null; });
-      _doConfirmImport(selected, today);
-    };
-    showCardModal();
-    return;
-  }
-  _doConfirmImport(selected, today);
-}
-
-function showCardModal() {
-  var modal = document.createElement('div');
-  modal.id = 'card-modal';
-  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:24px;z-index:9999;width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5)';
-  modal.innerHTML = '<div style="font-size:15px;font-weight:600;margin-bottom:6px">Qual cartão usou?</div>'
-    + '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">Informe os 4 últimos dígitos do cartão desta fatura (opcional)</div>'
-    + '<div class="form-group" style="margin-bottom:16px"><label class="form-label">Últimos 4 dígitos</label>'
-    + '<input type="text" id="card-modal-input" class="form-input" placeholder="ex: 1234" maxlength="4" inputmode="numeric" style="letter-spacing:4px;font-family:DM Mono,monospace;font-size:18px;text-align:center"></div>'
-    + '<div style="display:flex;gap:8px">'
-    + '<button class="btn btn-ghost" style="flex:1" onclick="closeCardModal(null)">Pular</button>'
-    + '<button class="btn btn-accent" style="flex:1" onclick="closeCardModal(document.getElementById(&quot;card-modal-input&quot;).value.trim())">Confirmar</button>'
-    + '</div>';
-  document.body.appendChild(modal);
-  setTimeout(function(){ var el = document.getElementById('card-modal-input'); if(el) el.focus(); }, 100);
-}
-
-function closeCardModal(cardLast4) {
-  var modal = document.getElementById('card-modal');
-  if (modal) modal.remove();
-  if (_pendingImportCallback) {
-    _pendingImportCallback(cardLast4 || null);
-    _pendingImportCallback = null;
-  }
-}
-
-function _doConfirmImport(selected, today) {
   selected.forEach(function(tx) {
     var id = 'tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
     state.transactions.push({
       id, merchant : tx.merchant || 'Importado',
       amount    : parseFloat(tx.amount) || 0,
       date      : tx.date || today,
-      cashDate  : tx.cashDate || tx.date || today,
+      cashDate  : tx.date || today,
       categoryId: tx.category_id || (state.categories[0]&&state.categories[0].id) || '',
       type      : tx.type || 'expense',
       notes     : tx.notes || 'Importado via extrato',
       createdAt : new Date().toISOString(),
-      source    : tx._source || 'extrato',
-      cardLast4 : tx._cardLast4 || null,
     });
     if (tx.merchant && tx.category_id) {
       state.mappings[(tx.merchant).toLowerCase()] = tx.category_id;
