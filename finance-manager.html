@@ -561,6 +561,13 @@
 
   .sub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .full-card { grid-column: 1 / -1; }
+  /* TIMELINE CHART */
+  .tl-line { fill: none; stroke-width: 2.5px; stroke-linejoin: round; stroke-linecap: round; }
+  .tl-area { opacity: 0.08; }
+  .tl-dot  { cursor: pointer; }
+  .tl-axis-label { font-family: 'DM Mono', monospace; font-size: 10px; fill: #545c78; }
+  .tl-grid-line  { stroke: #252a38; stroke-dasharray: 3 4; }
+  .tl-gran-active { background: rgba(200,240,77,.12) !important; color: #c8f04d !important; font-weight: 600 !important; }
 </style>
 </head>
 <body>
@@ -631,6 +638,66 @@
     <!-- DASHBOARD PAGE -->
     <div class="page active" id="page-dashboard">
       <div class="kpi-grid" id="kpi-grid"></div>
+
+      <!-- GRÁFICO DE LINHA TEMPORAL -->
+      <div class="card" style="margin-bottom:24px" id="timeline-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div class="section-title" style="margin:0">Evolução no Tempo</div>
+          <!-- Controles -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <!-- Granularidade -->
+            <div style="display:flex;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;overflow:hidden">
+              <button id="tl-gran-day"   onclick="setTimelineGran('day')"   style="padding:6px 12px;font-size:12px;font-family:DM Mono,monospace;background:none;border:none;cursor:pointer;color:var(--text3);transition:all .15s">dia</button>
+              <button id="tl-gran-week"  onclick="setTimelineGran('week')"  style="padding:6px 12px;font-size:12px;font-family:DM Mono,monospace;background:none;border:none;cursor:pointer;color:var(--text3);transition:all .15s">semana</button>
+              <button id="tl-gran-month" onclick="setTimelineGran('month')" style="padding:6px 12px;font-size:12px;font-family:DM Mono,monospace;background:rgba(200,240,77,.12);border:none;cursor:pointer;color:var(--accent);font-weight:600;transition:all .15s">mês</button>
+            </div>
+            <!-- Banco -->
+            <select id="tl-filter-bank" class="form-input" style="width:130px;padding:6px 10px;font-size:12px" onchange="renderTimeline()">
+              <option value="">Todos os bancos</option>
+            </select>
+            <!-- Cartão -->
+            <select id="tl-filter-card" class="form-input" style="width:130px;padding:6px 10px;font-size:12px" onchange="renderTimeline()">
+              <option value="">Todos os cartões</option>
+            </select>
+            <!-- Local / merchant -->
+            <select id="tl-filter-merchant" class="form-input" style="width:150px;padding:6px 10px;font-size:12px" onchange="renderTimeline()">
+              <option value="">Todos os locais</option>
+            </select>
+          </div>
+        </div>
+        <!-- Legenda -->
+        <div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;color:var(--text2)">
+            <input type="checkbox" id="tl-show-income"  checked onchange="renderTimeline()" style="accent-color:#4ade80">
+            <span style="color:#4ade80;font-weight:600">●</span> Receita
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;color:var(--text2)">
+            <input type="checkbox" id="tl-show-expense" checked onchange="renderTimeline()" style="accent-color:#f87171">
+            <span style="color:#f87171;font-weight:600">●</span> Despesa
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;color:var(--text2)">
+            <input type="checkbox" id="tl-show-invest"  checked onchange="renderTimeline()" style="accent-color:#a78bfa">
+            <span style="color:#a78bfa;font-weight:600">●</span> Investimento
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;color:var(--text2)">
+            <input type="checkbox" id="tl-show-balance" onchange="renderTimeline()" style="accent-color:#c8f04d">
+            <span style="color:#c8f04d;font-weight:600">●</span> Saldo Acumulado
+          </label>
+        </div>
+        <!-- SVG canvas -->
+        <div id="timeline-wrap" style="position:relative;width:100%;overflow:hidden">
+          <svg id="timeline-svg" style="width:100%;display:block;overflow:visible"></svg>
+          <!-- Tooltip -->
+          <div id="tl-tooltip" style="display:none;position:absolute;pointer-events:none;
+            background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+            padding:10px 14px;font-size:12px;min-width:160px;z-index:10;box-shadow:0 4px 20px rgba(0,0,0,.4)">
+          </div>
+        </div>
+        <div id="timeline-empty" style="display:none;text-align:center;padding:40px;color:var(--text3);font-size:13px">
+          Nenhuma transação encontrada para os filtros selecionados
+        </div>
+      </div>
+
       <div class="two-col">
         <div class="card">
           <div class="section-title">Gastos por Categoria <span>TOP 6</span></div>
@@ -1000,33 +1067,6 @@
       Entrar
     </button>
     <div id="login-error" style="color:var(--red);font-size:12.5px;margin-top:12px;min-height:18px"></div>
-    <div style="text-align:center;margin-top:14px">
-      <button onclick="showForgotPassword()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:12.5px;text-decoration:underline;padding:0">
-        Esqueci minha senha
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- FORGOT PASSWORD MODAL -->
-<div class="modal-bg" id="forgot-pwd-modal">
-  <div class="modal" style="max-width:400px;text-align:center">
-    <div class="modal-title">🔑 Recuperar Senha</div>
-    <div id="forgot-pwd-content">
-      <p style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">
-        Informe o e-mail cadastrado. Enviaremos um link para você redefinir sua senha.
-      </p>
-      <div class="form-group" style="text-align:left">
-        <label class="form-label">E-mail</label>
-        <input type="email" class="form-input" id="forgot-pwd-email" placeholder="seu@email.com"
-          onkeydown="if(event.key==='Enter')submitForgotPassword()">
-      </div>
-      <div id="forgot-pwd-error" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left"></div>
-      <div style="display:flex;gap:10px;margin-top:8px">
-        <button class="btn btn-ghost" onclick="closeForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>
-        <button class="btn btn-accent" onclick="submitForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Enviar link →</button>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -1227,48 +1267,13 @@ function getPeriodMonths() {
   return 1;
 }
 
-// ─── SALDO FLUIDO: calcula saldo acumulado até o início do período ────────────
-function getOpeningBalance() {
-  const period = document.getElementById('period-filter')?.value || 'current';
-  // Para "todos os lançamentos" não há saldo inicial anterior
-  if (period === 'all') return 0;
-
-  const now = new Date();
-  let cutoff; // data de corte: transações ANTES desta data formam o saldo inicial
-
-  if (period === 'current') {
-    cutoff = new Date(now.getFullYear(), now.getMonth(), 1); // 1º do mês atual
-  } else if (period === 'last') {
-    cutoff = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 1º do mês anterior
-  } else if (period === '3m') {
-    cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1); // 3 meses atrás
-  } else if (period === 'year') {
-    cutoff = new Date(now.getFullYear(), 0, 1); // 1º de janeiro do ano atual
-  } else {
-    return 0;
-  }
-
-  // Soma todas as transações anteriores ao corte
-  return (state.transactions || []).reduce((acc, tx) => {
-    const d = new Date((tx.date || '') + 'T12:00:00');
-    if (d < cutoff) {
-      if (tx.type === 'income')   return acc + tx.amount;
-      if (tx.type === 'expense')  return acc - tx.amount;
-      if (tx.type === 'invest')   return acc - tx.amount;
-    }
-    return acc;
-  }, 0);
-}
-
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDashboard() {
   const txs = getFilteredTxs();
   const expenses = txs.filter(t => t.type === 'expense').reduce((a,t) => a+t.amount, 0);
   const invested  = txs.filter(t => t.type === 'invest').reduce((a,t) => a+t.amount, 0);
   const income = txs.filter(t => t.type === 'income').reduce((a,t) => a+t.amount, 0);
-  const openingBalance = getOpeningBalance();          // ← saldo inicial herdado
-  const periodResult   = income - expenses - invested; // ← resultado do período
-  const balance        = openingBalance + periodResult; // ← saldo final fluido
+  const balance = income - expenses - invested;
   const txCount = txs.length;
 
   document.getElementById('sidebar-balance').textContent = fmt(balance);
@@ -1277,7 +1282,7 @@ function renderDashboard() {
   document.getElementById('kpi-grid').innerHTML = `
     <div class="kpi-card green"><div class="kpi-label">Receitas</div><div class="kpi-value" style="color:var(--green)">${fmt(income)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='income').length} lançamentos</div><div class="kpi-icon">💰</div></div>
     <div class="kpi-card red"><div class="kpi-label">Despesas</div><div class="kpi-value" style="color:var(--red)">${fmt(expenses)}</div><div class="kpi-delta">${txs.filter(t=>t.type==='expense').length} lançamentos</div><div class="kpi-icon">💸</div></div>
-    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${openingBalance !== 0 ? 'Início: ' + (openingBalance>=0?'':'−') + fmt(openingBalance) + ' · ' : ''}${periodResult>=0?'+ ':'− '}${fmt(Math.abs(periodResult))} no período</div><div class="kpi-icon">⚖️</div></div>
+    <div class="kpi-card ${balance>=0?'green':'red'}"><div class="kpi-label">Saldo Disponível</div><div class="kpi-value" style="color:${balance>=0?'var(--green)':'var(--red)'}">${fmt(balance)}</div><div class="kpi-delta">${balance>=0?'Positivo':'Negativo'}</div><div class="kpi-icon">⚖️</div></div>
     <div class="kpi-card purple"><div class="kpi-label">Patrimônio Investido</div><div class="kpi-value" style="color:#a78bfa">${fmt(getPatrimonio())}</div><div class="kpi-delta">${(state.investments||[]).length} investimento(s)</div><div class="kpi-icon">📈</div></div>
   `;
 
@@ -1327,6 +1332,10 @@ function renderDashboard() {
       <div><div class="alert-title">${a.title}</div><div class="alert-body">${a.body}</div></div>
     </div>
   `).join('') || '<div style="color:var(--green);font-size:13px;padding:8px">✅ Tudo dentro do orçamento!</div>';
+
+  // Gráfico de linha temporal
+  populateTimelineFilters();
+  renderTimeline();
 }
 
 function renderDonut(catSpends, total) {
@@ -1905,40 +1914,20 @@ function renderReportContent() {
       byMonth[key][tx.type] += tx.amount;
     });
     const months = Object.entries(byMonth).sort((a,b)=>a[0].localeCompare(b[0]));
-
-    // Calcula saldo acumulado antes do primeiro mês exibido
-    // usando TODAS as transações anteriores ao primeiro mês do filtro
-    let runningBalance = 0;
-    if (months.length > 0) {
-      const [firstY, firstMo] = months[0][0].split('-');
-      const cutoff = new Date(parseInt(firstY), parseInt(firstMo) - 1, 1);
-      runningBalance = (state.transactions || []).reduce((acc, tx) => {
-        const d = new Date((tx.date || '') + 'T12:00:00');
-        if (d < cutoff) {
-          if (tx.type === 'income')  return acc + tx.amount;
-          if (tx.type === 'expense') return acc - tx.amount;
-          if (tx.type === 'invest')  return acc - tx.amount;
-        }
-        return acc;
-      }, 0);
-    }
-
     document.getElementById('report-content').innerHTML = `
       <div class="card">
         <div class="section-title">Resumo por Mês</div>
         <table class="tx-table">
-          <thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Resultado</th><th>Saldo Acumulado</th></tr></thead>
+          <thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Saldo</th></tr></thead>
           <tbody>${months.map(([m, v]) => {
             const [y,mo] = m.split('-');
             const label = new Date(y, mo-1, 1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
-            const result = v.income - v.expense;
-            runningBalance += result;
+            const bal = v.income - v.expense;
             return `<tr>
               <td style="font-weight:500">${label}</td>
               <td class="amount-pos">+ ${fmt(v.income)}</td>
               <td class="amount-neg">− ${fmt(v.expense)}</td>
-              <td class="${result>=0?'amount-pos':'amount-neg'}">${result>=0?'+ ':'− '}${fmt(Math.abs(result))}</td>
-              <td class="${runningBalance>=0?'amount-pos':'amount-neg'}" style="font-weight:600">${runningBalance>=0?'+ ':'− '}${fmt(Math.abs(runningBalance))}</td>
+              <td class="${bal>=0?'amount-pos':'amount-neg'}">${bal>=0?'+ ':'− '}${fmt(bal)}</td>
             </tr>`;
           }).join('')}</tbody>
         </table>
@@ -2282,68 +2271,6 @@ function logout() {
   currentUser = null;
   closeUserPanel();
   showLoginScreen();
-}
-
-// ── RECUPERAÇÃO DE SENHA ──────────────────────────────────────────────────────
-function showForgotPassword() {
-  document.getElementById('forgot-pwd-email').value = '';
-  document.getElementById('forgot-pwd-error').textContent = '';
-  document.getElementById('forgot-pwd-content').innerHTML = document.getElementById('forgot-pwd-content').innerHTML; // reset
-  // Restaura conteúdo caso tenha sido substituído pelo sucesso
-  document.getElementById('forgot-pwd-content').innerHTML = `
-    <p style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">
-      Informe o e-mail cadastrado. Enviaremos um link para você redefinir sua senha.
-    </p>
-    <div class="form-group" style="text-align:left">
-      <label class="form-label">E-mail</label>
-      <input type="email" class="form-input" id="forgot-pwd-email" placeholder="seu@email.com"
-        onkeydown="if(event.key==='Enter')submitForgotPassword()">
-    </div>
-    <div id="forgot-pwd-error" style="color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left"></div>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn btn-ghost" onclick="closeForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Cancelar</button>
-      <button class="btn btn-accent" onclick="submitForgotPassword()" style="flex:1;justify-content:center;padding:10px;font-size:13px">Enviar link →</button>
-    </div>
-  `;
-  document.getElementById('forgot-pwd-modal').classList.add('show');
-  setTimeout(() => document.getElementById('forgot-pwd-email') && document.getElementById('forgot-pwd-email').focus(), 100);
-}
-
-function closeForgotPassword() {
-  document.getElementById('forgot-pwd-modal').classList.remove('show');
-}
-
-async function submitForgotPassword() {
-  var email = document.getElementById('forgot-pwd-email') ? document.getElementById('forgot-pwd-email').value.trim() : '';
-  var errEl = document.getElementById('forgot-pwd-error');
-  if (errEl) errEl.textContent = '';
-  if (!email) { if (errEl) errEl.textContent = 'Informe um e-mail válido'; return; }
-
-  var btn = document.querySelector('#forgot-pwd-content .btn-accent');
-  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
-
-  try {
-    var r = await fetch(WORKER_BASE + '/auth/forgot-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
-    // Sempre mostra mensagem de sucesso (não revela se e-mail existe)
-    document.getElementById('forgot-pwd-content').innerHTML = `
-      <div style="text-align:center;padding:8px 0">
-        <div style="font-size:36px;margin-bottom:12px">✉️</div>
-        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Link enviado!</div>
-        <p style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">
-          Se o e-mail <strong>${email}</strong> estiver cadastrado, você receberá um link de redefinição de senha em alguns minutos.<br><br>
-          Verifique também a caixa de spam.
-        </p>
-        <button class="btn btn-accent" onclick="closeForgotPassword()" style="width:100%;justify-content:center;padding:10px;font-size:13px">Fechar</button>
-      </div>
-    `;
-  } catch(e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Enviar link →'; }
-    if (errEl) errEl.textContent = 'Erro de conexão. Tente novamente.';
-  }
 }
 
 // ── ROLE HELPERS ──────────────────────────────────────────────────────────────
@@ -3678,6 +3605,331 @@ function getInvestCatId() {
     return c.name.toLowerCase().indexOf('invest') > -1;
   });
   return cat ? cat.id : (state.categories[0] ? state.categories[0].id : '');
+}
+
+// ─── TIMELINE CHART ──────────────────────────────────────────────────────────
+
+var timelineGran = 'month'; // 'day' | 'week' | 'month'
+
+function setTimelineGran(gran) {
+  timelineGran = gran;
+  ['day','week','month'].forEach(function(g) {
+    var el = document.getElementById('tl-gran-' + g);
+    if (!el) return;
+    if (g === gran) {
+      el.style.background = 'rgba(200,240,77,.12)';
+      el.style.color = '#c8f04d';
+      el.style.fontWeight = '600';
+    } else {
+      el.style.background = 'none';
+      el.style.color = '#545c78';
+      el.style.fontWeight = '400';
+    }
+  });
+  renderTimeline();
+}
+
+// Preenche os selects de filtro com valores únicos das transações
+function populateTimelineFilters() {
+  var txs = state.transactions || [];
+
+  // Bancos: extraídos do campo source (ex: "inter", "c6", "santander") ou notes
+  var banks = new Set();
+  txs.forEach(function(t) {
+    if (t.source && t.source !== 'manual' && t.source !== 'scan' && t.source !== 'import') banks.add(t.source);
+    // Tenta detectar banco por palavras-chave no merchant/notes
+    var text = ((t.merchant || '') + ' ' + (t.notes || '')).toLowerCase();
+    if (text.indexOf('inter') > -1) banks.add('inter');
+    if (text.indexOf('c6') > -1 || text.indexOf('c6bank') > -1) banks.add('c6');
+    if (text.indexOf('santander') > -1) banks.add('santander');
+    if (text.indexOf('nubank') > -1 || text.indexOf('nu ') > -1) banks.add('nubank');
+    if (text.indexOf('itaú') > -1 || text.indexOf('itau') > -1) banks.add('itaú');
+    if (text.indexOf('bradesco') > -1) banks.add('bradesco');
+    if (text.indexOf('caixa') > -1) banks.add('caixa');
+    if (text.indexOf('bb ') > -1 || text.indexOf('banco do brasil') > -1) banks.add('banco do brasil');
+  });
+
+  // Cartões: extraídos do campo cardLast4
+  var cards = new Set();
+  txs.forEach(function(t) {
+    if (t.cardLast4) cards.add(t.cardLast4);
+  });
+
+  // Merchants (locais): top 30 mais frequentes
+  var mCount = {};
+  txs.forEach(function(t) {
+    if (t.merchant) mCount[t.merchant] = (mCount[t.merchant] || 0) + 1;
+  });
+  var topMerchants = Object.entries(mCount)
+    .sort(function(a, b) { return b[1] - a[1]; })
+    .slice(0, 30)
+    .map(function(e) { return e[0]; });
+
+  // Atualiza selects
+  var bankSel = document.getElementById('tl-filter-bank');
+  var cardSel = document.getElementById('tl-filter-card');
+  var merchSel = document.getElementById('tl-filter-merchant');
+  if (!bankSel || !cardSel || !merchSel) return;
+
+  var prevBank  = bankSel.value;
+  var prevCard  = cardSel.value;
+  var prevMerch = merchSel.value;
+
+  bankSel.innerHTML  = '<option value="">Todos os bancos</option>' +
+    Array.from(banks).sort().map(function(b) {
+      return '<option value="' + b + '" ' + (prevBank === b ? 'selected' : '') + '>' + b.charAt(0).toUpperCase() + b.slice(1) + '</option>';
+    }).join('');
+
+  cardSel.innerHTML = '<option value="">Todos os cartões</option>' +
+    Array.from(cards).sort().map(function(c) {
+      return '<option value="' + c + '" ' + (prevCard === c ? 'selected' : '') + '>**** ' + c + '</option>';
+    }).join('');
+
+  merchSel.innerHTML = '<option value="">Todos os locais</option>' +
+    topMerchants.map(function(m) {
+      return '<option value="' + m.replace(/"/g, '&quot;') + '" ' + (prevMerch === m ? 'selected' : '') + '>' + m.slice(0, 28) + (m.length > 28 ? '…' : '') + '</option>';
+    }).join('');
+}
+
+// Bucketing de datas
+function getDateBucket(dateStr, gran) {
+  var d = new Date(dateStr + 'T12:00:00');
+  if (gran === 'day')   return dateStr.slice(0, 10);
+  if (gran === 'week') {
+    // Início da semana (segunda-feira)
+    var day = d.getDay(); // 0=dom
+    var diff = (day === 0) ? -6 : 1 - day;
+    var mon = new Date(d); mon.setDate(d.getDate() + diff);
+    return mon.toISOString().slice(0, 10);
+  }
+  if (gran === 'month') return dateStr.slice(0, 7);
+  return dateStr.slice(0, 7);
+}
+
+function formatBucketLabel(bucket, gran) {
+  if (gran === 'month') {
+    var parts = bucket.split('-');
+    var dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+    return dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('. ', '/').replace('.', '');
+  }
+  if (gran === 'week') {
+    var d = new Date(bucket + 'T12:00:00');
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('. ', '/').replace('.', '');
+  }
+  // day
+  var d2 = new Date(bucket + 'T12:00:00');
+  return d2.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('. ', '/').replace('.', '');
+}
+
+function renderTimeline() {
+  var svg      = document.getElementById('timeline-svg');
+  var wrap     = document.getElementById('timeline-wrap');
+  var emptyEl  = document.getElementById('timeline-empty');
+  if (!svg || !wrap) return;
+
+  // Filtros ativos
+  var bankFilter   = (document.getElementById('tl-filter-bank')     || {}).value || '';
+  var cardFilter   = (document.getElementById('tl-filter-card')     || {}).value || '';
+  var merchFilter  = (document.getElementById('tl-filter-merchant') || {}).value || '';
+  var showIncome   = document.getElementById('tl-show-income')  ? document.getElementById('tl-show-income').checked  : true;
+  var showExpense  = document.getElementById('tl-show-expense') ? document.getElementById('tl-show-expense').checked : true;
+  var showInvest   = document.getElementById('tl-show-invest')  ? document.getElementById('tl-show-invest').checked  : true;
+  var showBalance  = document.getElementById('tl-show-balance') ? document.getElementById('tl-show-balance').checked : false;
+
+  // Aplica período global
+  var allTxs = getFilteredTxs();
+
+  // Aplica filtros específicos do gráfico
+  var txs = allTxs.filter(function(t) {
+    if (bankFilter) {
+      var text = ((t.merchant || '') + ' ' + (t.notes || '') + ' ' + (t.source || '')).toLowerCase();
+      if (text.indexOf(bankFilter.toLowerCase()) === -1) return false;
+    }
+    if (cardFilter && t.cardLast4 !== cardFilter) return false;
+    if (merchFilter && t.merchant !== merchFilter) return false;
+    return true;
+  });
+
+  if (!txs.length) {
+    svg.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  svg.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  // Agrupa por bucket
+  var buckets = {};
+  txs.forEach(function(t) {
+    var key = getDateBucket(t.date, timelineGran);
+    if (!buckets[key]) buckets[key] = { income: 0, expense: 0, invest: 0 };
+    if (t.type === 'income')  buckets[key].income  += t.amount;
+    if (t.type === 'expense') buckets[key].expense += t.amount;
+    if (t.type === 'invest')  buckets[key].invest  += t.amount;
+  });
+
+  var keys = Object.keys(buckets).sort();
+  if (!keys.length) return;
+
+  // Calcula saldo acumulado por bucket
+  var runBal = getOpeningBalance ? getOpeningBalance() : 0;
+  var balByKey = {};
+  keys.forEach(function(k) {
+    runBal += buckets[k].income - buckets[k].expense - buckets[k].invest;
+    balByKey[k] = runBal;
+  });
+
+  // Dimensões responsivas
+  var W = wrap.clientWidth || 700;
+  var H = 260;
+  var PAD = { top: 16, right: 24, bottom: 40, left: 64 };
+  var chartW = W - PAD.left - PAD.right;
+  var chartH = H - PAD.top - PAD.bottom;
+
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('height', H);
+
+  // Coleta valores para escala Y
+  var allVals = [];
+  keys.forEach(function(k) {
+    if (showIncome)  allVals.push(buckets[k].income);
+    if (showExpense) allVals.push(buckets[k].expense);
+    if (showInvest && buckets[k].invest > 0) allVals.push(buckets[k].invest);
+    if (showBalance) allVals.push(balByKey[k]);
+  });
+  if (!allVals.length) return;
+
+  var yMin = Math.min(0, Math.min.apply(null, allVals));
+  var yMax = Math.max.apply(null, allVals) || 1;
+  var yPad = (yMax - yMin) * 0.12;
+  yMax += yPad;
+  if (yMin < 0) yMin -= yPad;
+
+  function xPos(i)   { return PAD.left + (keys.length > 1 ? i / (keys.length - 1) : 0.5) * chartW; }
+  function yPos(val) { return PAD.top + chartH - ((val - yMin) / (yMax - yMin)) * chartH; }
+
+  // Constrói SVG
+  var html = '';
+
+  // Grid horizontal (5 linhas)
+  var yTicks = 5;
+  for (var ti = 0; ti <= yTicks; ti++) {
+    var yVal  = yMin + (yMax - yMin) * ti / yTicks;
+    var yPx   = yPos(yVal);
+    var label = yVal >= 1000 ? 'R$' + (yVal / 1000).toFixed(0) + 'k' :
+                yVal <= -1000 ? '−R$' + (Math.abs(yVal) / 1000).toFixed(0) + 'k' :
+                'R$' + Math.round(yVal);
+    html += '<line class="tl-grid-line" x1="' + PAD.left + '" x2="' + (W - PAD.right) + '" y1="' + yPx + '" y2="' + yPx + '"/>';
+    html += '<text class="tl-axis-label" x="' + (PAD.left - 6) + '" y="' + (yPx + 3.5) + '" text-anchor="end">' + label + '</text>';
+  }
+
+  // Linha zero se necessário
+  if (yMin < 0 && yMax > 0) {
+    var y0 = yPos(0);
+    html += '<line stroke="#3a4258" stroke-width="1" x1="' + PAD.left + '" x2="' + (W - PAD.right) + '" y1="' + y0 + '" y2="' + y0 + '"/>';
+  }
+
+  // Labels eixo X — max ~10 labels espaçadas
+  var xStep = Math.max(1, Math.ceil(keys.length / 10));
+  keys.forEach(function(k, i) {
+    if (i % xStep !== 0 && i !== keys.length - 1) return;
+    var xp = xPos(i);
+    html += '<text class="tl-axis-label" x="' + xp + '" y="' + (H - 6) + '" text-anchor="middle">' +
+              formatBucketLabel(k, timelineGran) + '</text>';
+  });
+
+  // Função para gerar path de linha e área
+  function makePaths(values, color, show) {
+    if (!show) return '';
+    var pts = values.map(function(v, i) { return xPos(i) + ',' + yPos(v); });
+    var y0px = yPos(Math.max(0, yMin));
+    var area = 'M ' + xPos(0) + ',' + y0px +
+               ' L ' + pts.join(' L ') +
+               ' L ' + xPos(values.length - 1) + ',' + y0px + ' Z';
+    var line = 'M ' + pts.join(' L ');
+    return '<path class="tl-area" d="' + area + '" fill="' + color + '"/>' +
+           '<path class="tl-line" d="' + line + '" stroke="' + color + '"/>';
+  }
+
+  // Série investimento (tracejada)
+  if (showInvest) {
+    var iVals = keys.map(function(k) { return buckets[k].invest; });
+    var iPts  = iVals.map(function(v, i) { return xPos(i) + ',' + yPos(v); });
+    html += '<path class="tl-line" d="M ' + iPts.join(' L ') + '" stroke="#a78bfa" stroke-dasharray="5 3"/>';
+  }
+
+  // Áreas e linhas
+  html += makePaths(keys.map(function(k){ return buckets[k].expense; }), '#f87171', showExpense);
+  html += makePaths(keys.map(function(k){ return buckets[k].income;  }), '#4ade80', showIncome);
+
+  // Saldo acumulado (pontilhado brilhante)
+  if (showBalance) {
+    var bVals = keys.map(function(k) { return balByKey[k]; });
+    var bPts  = bVals.map(function(v, i) { return xPos(i) + ',' + yPos(v); });
+    html += '<path class="tl-line" d="M ' + bPts.join(' L ') + '" stroke="#c8f04d" stroke-width="2"/>';
+  }
+
+  // Pontos interativos (invisíveis com área de hover larga)
+  var series = [];
+  if (showIncome)  series.push({ key: 'income',  color: '#4ade80', label: 'Receita' });
+  if (showExpense) series.push({ key: 'expense', color: '#f87171', label: 'Despesa' });
+  if (showInvest)  series.push({ key: 'invest',  color: '#a78bfa', label: 'Investimento' });
+  if (showBalance) series.push({ key: '_balance',color: '#c8f04d', label: 'Saldo Acum.' });
+
+  keys.forEach(function(k, i) {
+    var xp = xPos(i);
+    // Área de hover
+    var tooltipData = 'data-bucket="' + k + '" data-i="' + i + '"';
+    html += '<rect x="' + (xp - 14) + '" y="' + PAD.top + '" width="28" height="' + chartH + '" fill="transparent" ' +
+            tooltipData + ' class="tl-hover-zone" style="cursor:crosshair"/>';
+    // Dot visível por série
+    series.forEach(function(s) {
+      var val = s.key === '_balance' ? balByKey[k] : buckets[k][s.key];
+      var yp  = yPos(val);
+      html += '<circle class="tl-dot" cx="' + xp + '" cy="' + yp + '" r="3.5" fill="' + s.color + '" stroke="#0d0f14" stroke-width="1.5" ' +
+              tooltipData + '/>';
+    });
+  });
+
+  svg.innerHTML = html;
+
+  // Tooltip via eventos nos pontos e zonas de hover
+  var tooltip = document.getElementById('tl-tooltip');
+  function showTip(bucketKey, evt) {
+    var b = buckets[bucketKey] || {};
+    var bal = balByKey[bucketKey];
+    var lines = '<div style="font-family:DM Mono,monospace;font-size:10px;color:#545c78;letter-spacing:1px;margin-bottom:8px;text-transform:uppercase">' +
+                formatBucketLabel(bucketKey, timelineGran) + '</div>';
+    if (showIncome)  lines += '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:#4ade80">● Receita</span><span style="color:#e8eaf0;font-family:DM Mono,monospace">R$ ' + (b.income||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>';
+    if (showExpense) lines += '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:#f87171">● Despesa</span><span style="color:#e8eaf0;font-family:DM Mono,monospace">R$ ' + (b.expense||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>';
+    if (showInvest)  lines += '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:4px"><span style="color:#a78bfa">● Investimento</span><span style="color:#e8eaf0;font-family:DM Mono,monospace">R$ ' + (b.invest||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>';
+    if (showBalance) lines += '<div style="display:flex;justify-content:space-between;gap:16px;border-top:1px solid #252a38;padding-top:6px;margin-top:4px"><span style="color:#c8f04d">● Saldo Acum.</span><span style="color:#c8f04d;font-family:DM Mono,monospace">' + (bal >= 0 ? '+ ' : '− ') + 'R$ ' + Math.abs(bal).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>';
+    tooltip.innerHTML = lines;
+    tooltip.style.display = 'block';
+    // Posição relativa ao wrap
+    var wRect = wrap.getBoundingClientRect();
+    var mouseX = evt.clientX - wRect.left;
+    var mouseY = evt.clientY - wRect.top;
+    var tipW = 190;
+    var left = mouseX + 12;
+    if (left + tipW > W) left = mouseX - tipW - 12;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top  = Math.max(0, mouseY - 40) + 'px';
+  }
+
+  svg.querySelectorAll('.tl-dot, .tl-hover-zone').forEach(function(el) {
+    el.addEventListener('mouseenter', function(e) {
+      var k = el.getAttribute('data-bucket');
+      if (k) showTip(k, e);
+    });
+    el.addEventListener('mousemove', function(e) {
+      var k = el.getAttribute('data-bucket');
+      if (k) showTip(k, e);
+    });
+    el.addEventListener('mouseleave', function() {
+      tooltip.style.display = 'none';
+    });
+  });
 }
 
 // ─── SIDEBAR TOGGLE ──────────────────────────────────────────────────────────
