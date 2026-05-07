@@ -2920,10 +2920,16 @@ async function renderInvitePanel() {
                     Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
                   </div>
                 </div>
-                <button onclick="revokeInvite('${inv.token}')"
-                  style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
-                  Revogar
-                </button>
+                <div style="display:flex;flex-direction:column;gap:4px">
+  <button onclick="copyInviteToken('${inv.token}')"
+    style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(125,211,252,0.3);border-radius:6px;cursor:pointer;color:var(--accent2)">
+    📋 Copiar link
+  </button>
+  <button onclick="revokeInvite('${inv.token}')"
+    style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+    Revogar
+  </button>
+</div>
               </div>
             </div>`).join('')}
         </div>`;
@@ -2973,15 +2979,22 @@ async function refreshActiveInvitesList() {
                   Expira: ${new Date(inv.expiresAt).toLocaleDateString('pt-BR')}
                 </div>
               </div>
-              <button onclick="revokeInvite('${inv.token}')"
-                style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
-                Revogar
-              </button>
+              <div style="display:flex;flex-direction:column;gap:4px">
+  <button onclick="copyInviteToken('${inv.token}')"
+    style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(125,211,252,0.3);border-radius:6px;cursor:pointer;color:var(--accent2)">
+    📋 Copiar link
+  </button>
+  <button onclick="revokeInvite('${inv.token}')"
+    style="font-size:11px;padding:4px 8px;background:none;border:1px solid rgba(248,113,113,0.3);border-radius:6px;cursor:pointer;color:var(--red)">
+    Revogar
+  </button>
+</div>
             </div>
           </div>`).join('')}
       </div>`;
   } catch(e) { /* silencioso */ }
 }
+
 function copyInviteLink() {
   navigator.clipboard.writeText(lastInviteLink).then(() => {
     showNotif('Link copiado!', 'success');
@@ -2990,6 +3003,15 @@ function copyInviteLink() {
   });
 }
 
+  function copyInviteToken(token) {
+  var link = window.location.origin + window.location.pathname + '?invite=' + token;
+  navigator.clipboard.writeText(link).then(function() {
+    showNotif('Link copiado!', 'success');
+  }).catch(function() {
+    prompt('Copie o link abaixo:', link);
+  });
+}
+  
 async function revokeInvite(token) {
   var r = await authFetch('/invites/' + token, {method:'DELETE'});
   if (!r.ok) { showNotif('Erro ao revogar', 'error'); return; }
